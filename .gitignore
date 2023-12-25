@@ -1,32 +1,40 @@
-# Prerequisites
-*.d
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+CMakeScripts/
+CMakeTmp/
 
-# Compiled Object files
-*.slo
-*.lo
+# Ninja build directory
+build/
+
+# Compiled object files
 *.o
 *.obj
 
-# Precompiled Headers
-*.gch
-*.pch
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
+# Compiled executables
 *.exe
 *.out
-*.app
+
+# Ignore system-specific files
+*.DS_Store
+Thumbs.db
+
+# Ignore editor-specific files
+.vscode/
+.idea/
+
+# Ignore dependency files
+*.d
+*.dep
+
+# Ignore temporary files
+*.swp
+*~
+
+# Ignore log files
+*.log
+
+# Ignore user-specific files
+CMakeUserPresets.json
+CMakeUserPresets.jsonc
+
