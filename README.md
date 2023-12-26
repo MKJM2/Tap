@@ -57,5 +57,10 @@ car : struct {
 
 # While loops
 
-
+```
+### Dependencies
+- CMake
+- Ninja
+- libreadline
+- C++20 compatible compiler
 

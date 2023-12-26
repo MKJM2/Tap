@@ -10,6 +10,9 @@ project(tap CXX)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD 20)
 
+# Find the Readline package
+# find_package(Readline REQUIRED)
+
 add_library(lexer)
 target_sources(lexer 
   PUBLIC
@@ -17,8 +20,17 @@ target_sources(lexer
       src/lexer.cppm
 )
 
+add_library(parser)
+target_sources(parser 
+  PUBLIC
+    FILE_SET CXX_MODULES FILES 
+      src/lexer.cppm
+      src/parser.cppm
+)
+
 add_executable(tap src/main.cpp)
 
-target_link_libraries(tap lexer)
+# Include the Readline headers
+# target_include_directories(tap PRIVATE ${Readline_INCLUDE_DIRS})
 
-
+target_link_libraries(tap lexer parser readline)

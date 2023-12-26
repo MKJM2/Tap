@@ -1,8 +1,12 @@
 import lexer;
+import parser;
 
 #include <iostream>
 #include <string>
 #include <vector>
+#include <cstring>
+#include <readline/readline.h>
+#include <readline/history.h>
 
 void printTokens(std::string& in) {
 	Lexer lexer(in);
@@ -20,12 +24,39 @@ void printTokens(std::string& in) {
 
 int main() {
 
+	char *cstr;
 	std::string input;
-	do {
-		std::cout << "> ";
-		std::getline(std::cin, input);
+	while (1) {
+        // Exit the REPL if the user enters "exit"
+        if ((cstr = readline(">> ")) == nullptr)
+			break;
+
+		input = cstr;
+		if ((input = cstr) == "exit") {
+            free(cstr);
+            break;
+        }
+
+		add_history(cstr);
+
 		printTokens(input);
-	} while (input != "quit");
+
+		/*
+        try {
+            ASTNode* ast = parser.parse(tokens);
+            // TODO: semantic analysis, interpretation (tree-walking)
+            if (ast) {
+                std::cout << "Parsed AST Node Type: "  \
+						  << static_cast<int>(ast->getType())  \
+						  << std::endl;
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "Error: " << e.what() << std::endl;
+        }
+		*/
+
+        free(cstr);
+	}
 
 	return 0;
 }
