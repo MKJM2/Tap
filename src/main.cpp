@@ -4,10 +4,8 @@ import lexer;
 #include <string>
 #include <vector>
 
-int main() {
-
-	std::string test = "y = 20;";
-	Lexer lexer(test);
+void printTokens(std::string& in) {
+	Lexer lexer(in);
 
 	std::vector<Token> tokens = lexer.tokenize();
 
@@ -18,11 +16,16 @@ int main() {
 				  << TokenType2String[static_cast<std::size_t>(token.type)]
 				  << "\n";
 	}
+}
 
+int main() {
 
+	std::string input;
+	do {
+		std::cout << "> ";
+		std::getline(std::cin, input);
+		printTokens(input);
+	} while (input != "quit");
 
-
-
-	std::cout << "Hello world!\n";
 	return 0;
 }

@@ -19,7 +19,7 @@ z : [str] = ["John", "Smith"];
 f : int -> int = \x. x + 5;   
 
 # Recursive functions
-func fib(n: int) : int {
+func fib(n: int) : int -> int {
     return fib(n - 1) + fib(n - 2);   
 }
 
@@ -54,6 +54,8 @@ car : struct {
 # Enums
 
 # For loops
+
+# While loops
 
 
 
