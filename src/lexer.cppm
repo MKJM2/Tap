@@ -4,6 +4,7 @@ module;
 #include <vector>
 #include <string>
 #include <array>
+#include <optional>
 #include <unordered_map>
 
 export module lexer;
@@ -117,7 +118,7 @@ TokenType2String = {
     "COMMA",
     "PERIOD",
     "LAMBDA",
-    "KEYWORD_INT,   // TODO: 32bit vs 16bit vs 8 bi",
+    "KEYWORD_INT",
     "KEYWORD_STRING",
     "KEYWORD_FUNC",
     "KEYWORD_RETURN",
@@ -155,7 +156,9 @@ export struct Token {
 
 export class Lexer {
 public:
+    Lexer() {};
     Lexer(const std::string& source);
+    void setSource(const std::string& in);
     std::vector<Token> tokenize();
 
 private:
@@ -188,6 +191,14 @@ std::vector<Token> Lexer::tokenize() {
 
     tokens.push_back({TokenType::END_OF_FILE, "", line});
     return tokens;
+}
+
+void Lexer::setSource(const std::string& in) {
+    source = in;
+    start = 0;
+    current = 0;
+    line = 1;
+    tokens.clear();
 }
 
 void Lexer::scanToken() {

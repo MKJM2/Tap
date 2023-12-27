@@ -1,0 +1,63 @@
+# Variable assignment
+x = 5;   
+
+# Optional type annotations
+y : int;
+y = 20;
+
+y : int = 20;  # Type signatures can be inlined
+
+# Strings
+name : str = "Gabrielle";
+
+# Lists 
+nums : [int] = [1, 2, 3];
+z : [str] = ["John", "Smith"];  
+
+# Lambda expressions
+f : int -> int = \x. x + 5;   
+
+# Recursive functions & type arrows
+func fib(n: int) : int -> int {
+    return fib(n - 1) + fib(n - 2);   
+}
+
+# Implicit return statements & type inference
+add : int -> int -> int;
+func add(x, y) {
+    x + y;   
+}
+
+func sub(x: int, y: int) {
+    x - y;
+}
+
+# C-style operator syntax
+y += 20;
+--y;
+y = y % (y + 3);
+
+# Functions are first class citizens
+add2 : int -> int -> int;
+add2 = \x. add(2, x);
+
+func custom_add_x(x: int) : int -> int -> int {
+    \y. add(x, y);
+}
+
+### TODOs
+
+# Structs
+car : struct {
+    make : str,
+    model : str,
+    year_produced : int
+};
+
+# Matching
+
+# Enums
+
+# For loops
+
+# While loops

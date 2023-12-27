@@ -1,7 +1,28 @@
 # Tap
 A simple interpreted programming language.
 
-### Syntax
+### Grammar (EBNF)
+```
+program         = {statement} .
+statement       = [ident [ ":" type-annotation ] "=" expression { "," ident "=" expression } ";" ]
+                  [ident ":" type-annotation ";" ] .
+type-annotation = type-ident { "->" type-annotation } | "[" type-annotation "]" .
+expression      = term { ("+" | "-") term } .
+term            = factor { ("*" | "/") factor } .
+factor          = ident | integer | string | list | lambda | function_call | "(" expression ")" .
+list            = "[" [ expression { "," expression } ] "]" .
+lambda          = "\" ident "." expression .
+function_call   = ident "(" [ expression { "," expression } ] ")" .
+ident           = letter { letter | digit } .
+type-ident      = "int" | "str" | "float" .
+integer         = digit {digit} .
+string          = '"' { character } '"' .
+character       = UTF8 \ '"' .
+letter          = ['a'-'z'] | ['A' - 'Z' ] .
+
+```
+
+### Example Syntax
 ```
 # Variable assignment
 x = 5;   
@@ -14,7 +35,6 @@ y : int = 20;  # Type signatures can be inlined
 
 # Lists
 z : [str] = ["John", "Smith"];  
-
 # Lambda expressions
 f : int -> int = \x. x + 5;   
 

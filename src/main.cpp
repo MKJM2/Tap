@@ -8,10 +8,7 @@ import parser;
 #include <readline/readline.h>
 #include <readline/history.h>
 
-void printTokens(std::string& in) {
-	Lexer lexer(in);
-
-	std::vector<Token> tokens = lexer.tokenize();
+void printTokens(std::vector<Token>& tokens) {
 
 	for (auto& token : tokens) {
 		std::cout << "Token: '"
@@ -24,14 +21,17 @@ void printTokens(std::string& in) {
 
 int main() {
 
-	char *cstr;
-	std::string input;
+	char *cstr{};
+	std::string input{};
+	Lexer lexer;
+	Parser parser;
+
 	while (1) {
-        // Exit the REPL if the user enters "exit"
+
         if ((cstr = readline(">> ")) == nullptr)
 			break;
 
-		input = cstr;
+        // Exit the REPL if the user enters "exit"
 		if ((input = cstr) == "exit") {
             free(cstr);
             break;
@@ -39,7 +39,13 @@ int main() {
 
 		add_history(cstr);
 
-		printTokens(input);
+		lexer.setSource(input);
+		try {
+			std::vector<Token> tokens = lexer.tokenize();
+			printTokens(tokens);
+		} catch (const std::exception& e) {
+			std::cerr << "Error: " << e.what() << std::endl;
+		}
 
 		/*
         try {
