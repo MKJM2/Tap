@@ -5,10 +5,11 @@ import parser;
 #include <string>
 #include <vector>
 #include <cstring>
+#include <fstream>
 #include <readline/readline.h>
 #include <readline/history.h>
 
-void printTokens(std::vector<Token>& tokens) {
+static void printTokens(std::vector<Token>& tokens) {
 
 	for (auto& token : tokens) {
 		std::cout << "Token: '"
@@ -19,12 +20,43 @@ void printTokens(std::vector<Token>& tokens) {
 	}
 }
 
-int main() {
+static void processInput(const std::string& input) {
+    Lexer lexer;
+    Parser parser;
 
+    try {
+        lexer.setSource(input);
+        std::vector<Token> tokens = lexer.tokenize();
+        printTokens(tokens);
+        parser.setTokens(tokens);
+        parser.parse_program();
+    } catch (const std::exception& e) {
+        std::cerr << e.what() << std::endl;
+    }
+}
+
+int main(int argc, char *argv[]) {
+	if (argc > 1) {
+			// Treat command-line argument as input file
+			const char* filename = argv[1];
+			std::ifstream inputFile(filename);
+
+			if (!inputFile) {
+				std::cerr << "Error: Unable to open file '" << filename << "'\n";
+				return 1;
+			}
+
+			// Read the content of the file into a string
+			std::string fileContent((std::istreambuf_iterator<char>(inputFile)),
+									std::istreambuf_iterator<char>());
+
+			processInput(fileContent);
+			return 0;
+    }
+
+	// If no input file specified, we default to a REPL
 	char *cstr{};
 	std::string input{};
-	Lexer lexer;
-	Parser parser;
 
 	while (1) {
 
@@ -38,29 +70,7 @@ int main() {
         }
 
 		add_history(cstr);
-
-		lexer.setSource(input);
-		try {
-			std::vector<Token> tokens = lexer.tokenize();
-			printTokens(tokens);
-		} catch (const std::exception& e) {
-			std::cerr << "Error: " << e.what() << std::endl;
-		}
-
-		/*
-        try {
-            ASTNode* ast = parser.parse(tokens);
-            // TODO: semantic analysis, interpretation (tree-walking)
-            if (ast) {
-                std::cout << "Parsed AST Node Type: "  \
-						  << static_cast<int>(ast->getType())  \
-						  << std::endl;
-            }
-        } catch (const std::exception& e) {
-            std::cerr << "Error: " << e.what() << std::endl;
-        }
-		*/
-
+		processInput(input);
         free(cstr);
 	}
 

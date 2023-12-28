@@ -309,6 +309,9 @@ void Lexer::scanToken() {
             break;
         }
         case '\\': addToken(TokenType::LAMBDA); break;
+        case '#': // We skip the line
+            while (peek() != '\0' && peek() != '\n') advance();
+            break;
         default:
             if (isDigit(c)) {
                 while (isDigit(peek())) advance();

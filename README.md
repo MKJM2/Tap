@@ -7,8 +7,9 @@ program         = {statement} .
 statement       = [assignment ";"]
                   [ident ":" type-annotation ";"]
                   [function_call ";" ]
+                  [expression ";" ] 
                   ["return" expression ";" ] .
-assignment      = [ident [ ":" type-annotation ] "=" expression { "," ident "=" expression } ] .
+assignment      = ident [ ":" type-annotation ] "=" expression { "," ident "=" expression } .
 type-annotation = type-ident { "->" type-annotation } | "[" type-annotation "]" .
 expression      = term { ("+" | "-") term } .
 term            = factor { ("*" | "/") factor } .
