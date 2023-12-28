@@ -4,22 +4,27 @@ A simple interpreted programming language.
 ### Grammar (EBNF)
 ```
 program         = {statement} .
-statement       = [ident [ ":" type-annotation ] "=" expression { "," ident "=" expression } ";" ]
-                  [ident ":" type-annotation ";" ] .
+statement       = [assignment ";"]
+                  [ident ":" type-annotation ";"]
+                  [function_call ";" ]
+                  ["return" expression ";" ] .
+assignment      = [ident [ ":" type-annotation ] "=" expression { "," ident "=" expression } ] .
 type-annotation = type-ident { "->" type-annotation } | "[" type-annotation "]" .
 expression      = term { ("+" | "-") term } .
 term            = factor { ("*" | "/") factor } .
 factor          = ident | integer | string | list | lambda | function_call | "(" expression ")" .
 list            = "[" [ expression { "," expression } ] "]" .
 lambda          = "\" ident "." expression .
-function_call   = ident "(" [ expression { "," expression } ] ")" .
+function_call   = ident "(" arglist ")" .
+function_def    = "func" ident "(" typed-arglist ")" "{" statement "}" .
+arglist         = [ expression { "," expression } ] .
+typed-arglist   = [ expression [ ":" type-annotation ] { "," expression [ ":" type-annotation ] } ] .
 ident           = letter { letter | digit } .
 type-ident      = "int" | "str" | "float" .
 integer         = digit {digit} .
 string          = '"' { character } '"' .
 character       = UTF8 \ '"' .
 letter          = ['a'-'z'] | ['A' - 'Z' ] .
-
 ```
 
 ### Example Syntax

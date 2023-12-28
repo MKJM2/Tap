@@ -4,6 +4,7 @@ import lexer;
 
 #include <iostream>
 #include <vector>
+#include <assert.h>
 
 export module parser;
 
@@ -60,8 +61,63 @@ private:
 export class Parser {
 public:
     Parser() {}
-    Parser(std::vector<Token> &t) : tokens(t) {}
+    Parser(std::vector<Token> &t) : tokens_(t) {}
+
+protected:
+    TokenType next();
+    TokenType peek();
+    void expect(TokenType type);
+    /* One function per each EBNF rule */
+    void parse_program();
+    void statement();
+    void assignment();
+    void type_annotation();
+    void expression();
+    void term();
+    void factor();
+    void list();
+    void lambda();
+    void function_call();
+    void function_def();
+    void arglist();
+    void typed_arglist();
 
 private:
-    std::vector<Token> tokens;
+    std::vector<Token> tokens_;
+    int current = 0;
 };
+
+TokenType Parser::peek() {
+    assert(current < tokens_.size());
+    return tokens_[current].type;
+}
+
+TokenType Parser::next() {
+    assert(current < tokens_.size());
+    return tokens_[current++].type;
+}
+
+
+void Parser::expect(TokenType type) {
+    assert(TokenType::IDENTIFIER <= type && type < TokenType::NUM_TOKENS);
+    if (peek() != type) {
+        std::cerr << "Syntax error: Expected token " 
+                  << TokenType2String[static_cast<std::size_t>(type)] \
+                  << " but got " 
+                  << TokenType2String[static_cast<std::size_t>(peek())] \
+                  << std::endl;
+        std::exit(1);
+    }
+    next();
+}
+
+void Parser::parse_program() {
+    while (peek() != TokenType::END_OF_FILE) {
+        this->statement();
+    }
+
+}
+
+void Parser::statement() {
+    (void) 0;
+}
