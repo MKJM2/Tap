@@ -1,5 +1,7 @@
 cmake_minimum_required (VERSION 3.28)
 
+enable_testing()
+
 set(CMAKE_C_COMPILER "clang-17")
 set(CMAKE_CXX_COMPILER "clang++-17")
 
@@ -28,11 +30,12 @@ target_sources(parser
       src/parser.cppm
 )
 
-add_executable(tap src/main.cpp)
 
-add_subdirectory(tests build)
+add_subdirectory(tests)
+
+add_executable(tap src/main.cpp)
 
 # Include the Readline headers
 # target_include_directories(tap PRIVATE ${Readline_INCLUDE_DIRS})
 
-target_link_libraries(tap lexer parser readline gtest gtest_main)
+target_link_libraries(tap lexer parser readline)

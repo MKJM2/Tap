@@ -10,6 +10,6 @@ file(GLOB TEST_SOURCES "*.cpp")
 add_executable(tests ${TEST_SOURCES})
 
 # Link your project and GoogleTest
-target_link_libraries(tests gtest gtest_main)
+target_link_libraries(tests lexer parser gtest gtest_main)
 
 add_test(NAME ParserTest COMMAND tests)

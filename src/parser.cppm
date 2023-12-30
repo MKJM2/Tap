@@ -161,6 +161,9 @@ void Parser::statement() {
             case TokenType::COLON: { /* Type annotation */
                 next(2); 
                 type_annotation();
+                if (type != TokenType::SEMICOLON) { /* Inline type annotation */
+                    assignment();
+                }
                 break;
             }
             case TokenType::ASSIGN: { /* Variable assignment */
@@ -202,17 +205,17 @@ void Parser::statement() {
 
 // type-annotation = type-ident { "->" type-annotation } | "[" type-annotation "]" .
 void Parser::type_annotation() {
-    if (type == TokenType::OPEN_BRACE) { /* Parse list type */
+    if (type == TokenType::OPEN_BRACKET) { /* Parse list type */
         next();
         type_annotation();
-        expect(TokenType::CLOSE_BRACE);
+        expect(TokenType::CLOSE_BRACKET);
     } else if (type == TokenType::KEYWORD_INT || type == TokenType::KEYWORD_STRING) {
         next();
         if (type == TokenType::ARROW)
             type_annotation();
-
-    } else 
+    } else {
         parse_error("Error while parsing type annotation: invalid type");
+    }
 }
 
 // assignment = ident [ ":" type-annotation ] "=" expression { "," ident "=" expression } .
@@ -242,8 +245,14 @@ void Parser::function_def() {
     expect(TokenType::OPEN_PAREN);
     typed_arglist();
     expect(TokenType::CLOSE_PAREN);
+    if (type == TokenType::COLON) { /* Optional type annotation */
+        next();
+        type_annotation();
+    }
     expect(TokenType::OPEN_BRACE);
-    statement();
+    while (type != TokenType::CLOSE_BRACE) {
+        statement();
+    }
     expect(TokenType::CLOSE_BRACE);
 }
 
