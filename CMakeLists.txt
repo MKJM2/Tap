@@ -30,7 +30,9 @@ target_sources(parser
 
 add_executable(tap src/main.cpp)
 
+add_subdirectory(tests build)
+
 # Include the Readline headers
 # target_include_directories(tap PRIVATE ${Readline_INCLUDE_DIRS})
 
-target_link_libraries(tap lexer parser readline)
+target_link_libraries(tap lexer parser readline gtest gtest_main)
