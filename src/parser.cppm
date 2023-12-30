@@ -211,10 +211,13 @@ void Parser::type_annotation() {
         expect(TokenType::CLOSE_BRACKET);
     } else if (type == TokenType::KEYWORD_INT || type == TokenType::KEYWORD_STRING) {
         next();
-        if (type == TokenType::ARROW)
-            type_annotation();
     } else {
         parse_error("Error while parsing type annotation: invalid type");
+    }
+
+    if (type == TokenType::ARROW) {
+        next();
+        type_annotation();
     }
 }
 
@@ -238,7 +241,7 @@ void Parser::function_call() {
 }
 
 
-// function_def    = "func" ident "(" typed-arglist ")" "{" statement "}" .
+// function_def    = "func" ident "(" typed-arglist ")" "{" {statement} "}" .
 void Parser::function_def() {
     expect(TokenType::KEYWORD_FUNC);
     expect(TokenType::IDENTIFIER);
@@ -312,7 +315,7 @@ void Parser::factor() {
             next(); break;
         case TokenType::STRING:
             next(); break;
-        case TokenType::OPEN_BRACE:
+        case TokenType::OPEN_BRACKET:
             // REVIEW: Empty list support
             list(); break;
         case TokenType::LAMBDA:

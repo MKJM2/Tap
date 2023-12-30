@@ -24,6 +24,46 @@ TEST(ParserTest, Empty) {
     ASSERT_NO_THROW(parser_tester(""));
 }
 
+TEST(ParserTest, ExpressionStatement) {
+    ASSERT_NO_THROW(parser_tester("5   ;"));
+}
+
+TEST(ParserTest, Addition) {
+    ASSERT_NO_THROW(parser_tester("1 + 5;"));
+}
+
+TEST(ParserTest, Subtraction) {
+    ASSERT_NO_THROW(parser_tester("1 - 5;"));
+}
+
+TEST(ParserTest, Multiplication) {
+    ASSERT_NO_THROW(parser_tester("1 * 5;"));
+}
+
+TEST(ParserTest, FloatDivision) {
+    ASSERT_NO_THROW(parser_tester("9 / 2;"));
+}
+
+TEST(ParserTest, EmptyList) {
+    ASSERT_NO_THROW(parser_tester("[] ;"));
+}
+
+TEST(ParserTest, IntegerList) {
+    ASSERT_NO_THROW(parser_tester("[1, 2, 3, 4, 5];"));
+}
+
+TEST(ParserTest, StringList) {
+    ASSERT_NO_THROW(parser_tester("[\"John\", \"Smith\"];"));
+}
+
+TEST(ParserTest, MixedList) {
+    ASSERT_NO_THROW(parser_tester("[\"John\", 123];"));
+}
+
+TEST(ParserTest, ExpressionList) {
+    ASSERT_NO_THROW(parser_tester("[\"John\", 123];"));
+}
+
 TEST(ParserTest, Assignment) {
     ASSERT_NO_THROW(parser_tester("x = 5;"));
 }
@@ -32,7 +72,15 @@ TEST(ParserTest, TypeAnnotation) {
     ASSERT_NO_THROW(parser_tester("x : int;"));
 }
 
-TEST(ParserTest, Lists) {
+TEST(ParserTest, ListTypeAnnotation) {
+    ASSERT_NO_THROW(parser_tester("lst : [int] ;"));
+}
+
+TEST(ParserTest, NestedTypeAnnotation) {
+    ASSERT_NO_THROW(parser_tester("lst2 : [int -> int -> [int -> int]] ;"));
+}
+
+TEST(ParserTest, ListInlineTypeAnnotation) {
     ASSERT_NO_THROW(parser_tester("z : [str] = [\"John\", \"Smith\"];"));
 }
 

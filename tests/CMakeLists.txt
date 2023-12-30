@@ -12,4 +12,6 @@ add_executable(tests ${TEST_SOURCES})
 # Link your project and GoogleTest
 target_link_libraries(tests lexer parser gtest gtest_main)
 
-add_test(NAME ParserTest COMMAND tests)
+# add_test(NAME ParserTest COMMAND tests)
+
+gtest_discover_tests(tests)
