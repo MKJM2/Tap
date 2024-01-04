@@ -69,8 +69,8 @@ int main(int argc, char *argv[]) {
             break;
         }
 
-		add_history(cstr);
-		processInput(input);
+        add_history(cstr);
+        processInput(input);
         free(cstr);
 	}
 

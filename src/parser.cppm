@@ -14,13 +14,17 @@ public:
     // Enum to represent different types of AST nodes
     enum NodeType {
         INT,
-        FLOAT,
         STRING,
-        BOOL,
-        VARIABLE,
-        UNOP,
-        BINOP,
-        CONDITIONAL,
+        IDENTIFIER,
+        FUNC_DEF,
+        FUNC_CALL,
+        LAMBDA,
+        LIST,
+        FACTOR,
+        TERM,
+        ASSIGNMENT,
+        EXPRESSION,
+        STATEMENT,
     };
 
     NodeType type() const {
@@ -41,21 +45,56 @@ private:
     const char8_t type_;
 };
 
-class ASTVariable : public ASTNode {
+class Identifier : public ASTNode {
 public:
   static bool typeof(const ASTNode *e) {
     return e->type() == VARIABLE;
   }
 
-  ASTVariable() = delete;
-  ASTVariable(const char* s) : ASTNode(VARIABLE), name_(s) {}
-  ASTVariable(std::string s) : ASTNode(VARIABLE), name_(std::move(s)) {}
+  Identifier() = delete;
+  Identifier(const char* s) : ASTNode(IDENTIFIER), name_(s) {}
+  Identifier(std::string s) : ASTNode(IDENTIFIER), name_(std::move(s)) {}
 
   // Name of the variable
   const std::string& name() const { return name_; }
 
 private:
   std::string name_;
+};
+
+
+class Integer : public ASTNode {
+public:
+  static bool typeof(const ASTNode *e) {
+    return e->type() == INT;
+  }
+
+  Integer() = delete;
+  Integer(int literal) : ASTNode(INT), value_(literal) {}
+
+  // Name of the variable
+  const int value() const { return value_ ; }
+
+private:
+  int value_;
+};
+
+
+class String : public ASTNode {
+public:
+  static bool typeof(const ASTNode *e) {
+    return e->type() == INT;
+  }
+
+  String() = delete;
+  String(const char* s) : ASTNode(STRING), value_(s) {}
+  String(std::string s) : ASTNode(STRING), value_(std::move(s)) {}
+
+  // Name of the variable
+  const int value() const { return value_ ; }
+
+private:
+    std::string value_;
 };
 
 
