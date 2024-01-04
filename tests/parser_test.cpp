@@ -44,6 +44,10 @@ TEST(ParserTest, FloatDivision) {
     ASSERT_NO_THROW(parser_tester("9 / 2;"));
 }
 
+TEST(ParserTest, NestedArithmetic) {
+    ASSERT_NO_THROW(parser_tester("(1 + 5) * 2 + 2 / 2 - 2 * (5 / (1 * 2)) ;"));
+}
+
 TEST(ParserTest, EmptyList) {
     ASSERT_NO_THROW(parser_tester("[] ;"));
 }

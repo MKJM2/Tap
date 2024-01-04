@@ -39,16 +39,16 @@ public:
 protected: 
     ASTNode() = delete;
     ASTNode(char8_t op) : type_(op), arity_(0) {}
-
+    ASTNode(char8_t op, char8_t ar) : type_(op), arity_(ar) {}
+    char8_t arity_;
 private:
-    const char8_t arity_;
     const char8_t type_;
 };
 
 class Identifier : public ASTNode {
 public:
   static bool typeof(const ASTNode *e) {
-    return e->type() == VARIABLE;
+    return e->type() == IDENTIFIER;
   }
 
   Identifier() = delete;
@@ -83,7 +83,7 @@ private:
 class String : public ASTNode {
 public:
   static bool typeof(const ASTNode *e) {
-    return e->type() == INT;
+    return e->type() == STRING;
   }
 
   String() = delete;
@@ -91,12 +91,137 @@ public:
   String(std::string s) : ASTNode(STRING), value_(std::move(s)) {}
 
   // Name of the variable
-  const int value() const { return value_ ; }
+  const std::string value() const { return value_ ; }
 
 private:
     std::string value_;
 };
 
+
+class FunctionDef : public ASTNode {
+public:
+  static bool typeof(const ASTNode *e) {
+    return e->type() == FUNC_DEF;
+  }
+
+  FunctionDef() = delete;
+  FunctionDef(const char* s) : ASTNode(FUNC_DEF), name_(s) {}
+  FunctionDef(std::string s) : ASTNode(FUNC_DEF), name_(std::move(s)) {}
+  FunctionDef(std::string s, std::vector<std::string>& args)
+      : ASTNode(FUNC_DEF)
+      , name_(std::move(s))
+      , args_(args) {}
+
+  // Getters
+  const std::string name() const { return name_ ; }
+  const std::vector<std::string> args() const { return args_ ; }
+
+  // Setters
+  void add_arg(const std::string arg) { args_.push_back(arg); }
+
+private:
+    std::string name_;
+    std::vector<std::string> args_;
+};
+
+
+class Factor : public ASTNode {
+public:
+  Factor() = delete;
+  Factor(ASTNode *node) : ASTNode(FACTOR), child_(node) {
+     assert(node->type() == IDENTIFIER ||
+            node->type() == INT ||
+            node->type() == STRING ||
+            node->type() == LIST ||
+            node->type() == LAMBDA ||
+            node->type() == FUNC_CALL ||
+            node->type() == EXPRESSION);
+  }
+
+  // Getters
+  const ASTNode *child() const { return child_ ; }
+
+private:
+    ASTNode *child_;
+};
+
+
+/*
+template <unsigned arr>
+class Term : public ASTNode {
+public:
+    Term() : ASTNode(TERM), op_('\0') {} // No factors initially, zero arity
+    Term(const ASTNode* f) : ASTNode(TERM, 1), op_('\0') { factors_[0] = f; }
+    Term(const Factor& f1, const char op, const Factor& f2) : ASTNode(TERM, 2) {
+        op_ = op;
+        factors_[0] = f1;
+        factors_[1] = f2;
+    }
+
+private:
+    char8_t op_;
+    ASTNode* factors_[ar];
+};
+*/
+
+
+class Term : public ASTNode {
+public:
+    Term() : ASTNode(TERM) {}
+
+    Term (const ASTNode& factor) : ASTNode(TERM) {
+        arity_ = 1;
+        factors_.push_back(std::move(factor));
+    }
+
+    void addFactor(const ASTNode& factor, const char op = '\0') {
+        assert(factor.type() == FACTOR);
+        factors_.push_back(std::move(factor));
+        operators_.push_back(op); 
+        arity_++;  // we increment the arity for each added factor
+    }
+
+    const std::vector<ASTNode>& getFactors() const {
+        return factors_;
+    }
+
+    const std::vector<char>& getOperators() const {
+        return operators_;
+    }
+
+private:
+    std::vector<ASTNode> factors_;
+    std::vector<char> operators_;  // Operators between factors
+};
+
+class Expression : public ASTNode {
+public:
+    Expression() : ASTNode(EXPRESSION) {}
+
+    Expression (const ASTNode& term) : ASTNode(EXPRESSION) {
+        arity_ = 1;
+        terms_.push_back(std::move(term));
+    }
+
+    void addFactor(const ASTNode& term, const char op = '\0') {
+        assert(term.type() == TERM);
+        terms_.push_back(std::move(term));
+        operators_.push_back(op);
+        arity_++;  // we increment the arity for each added factor
+    }
+
+    const std::vector<ASTNode>& getTerms() const {
+        return terms_;
+    }
+
+    const std::vector<char>& getOperators() const {
+        return operators_;
+    }
+
+private:
+    std::vector<ASTNode> terms_;
+    std::vector<char> operators_;  // Operators between factors
+};
 
 export class Parser {
 public:
@@ -107,6 +232,7 @@ public:
     void setTokens(std::vector<Token> &tokens);
     void parse_program();
 protected:
+    Token curr();
     TokenType next(int tokens = 1);
     TokenType peek();
     TokenType peekNext();
@@ -130,6 +256,10 @@ private:
     TokenType type = TokenType::NUM_TOKENS;
     int current = 0;
 };
+
+Token Parser::curr() {
+    return tokens_[current];
+}
 
 TokenType Parser::peek() {
     assert(current < tokens_.size());
@@ -345,17 +475,18 @@ void Parser::factor() {
         case TokenType::IDENTIFIER: /* Identifier or function call */
             next();
             if (type == TokenType::OPEN_PAREN) {/* Function call */
-                next();
-                expression();
-                expect(TokenType::CLOSE_PAREN);
+                function_call();
             }
             break;
         case TokenType::INTEGER:
+            Integer(std::stoi(curr().lexeme));
             next(); break;
         case TokenType::STRING:
+            String(curr().lexeme);
             next(); break;
         case TokenType::OPEN_BRACKET:
             // REVIEW: Empty list support
+
             list(); break;
         case TokenType::LAMBDA:
             lambda(); break;
