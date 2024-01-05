@@ -118,6 +118,7 @@ public:
   // Getters
   const std::string name() const { return name_ ; }
   const std::vector<std::string> args() const { return args_ ; }
+  const std::vector<std::unique_ptr<ASTNode>>& statements() const { return statements_; }
 
   // Setters
   void add_arg(const std::string arg) { args_.push_back(arg); }
@@ -138,6 +139,7 @@ public:
 
   // Getters
   const std::string name() const { return name_ ; }
+  const ASTNode *args() const { return args_.get() ; }
 
 private:
     std::string name_;
@@ -174,10 +176,11 @@ public:
   , elements_(std::move(elements)) {}
 
   // Getters
-  ASTNode* child(int idx) const {
+  const ASTNode* child(int idx) const {
     assert(idx < elements_.size());
     return elements_[idx].get();
- }
+  }
+  const std::vector<std::unique_ptr<ASTNode>>& elements() const { return elements_; }
 
 private:
     std::vector<std::unique_ptr<ASTNode>> elements_;
@@ -219,8 +222,12 @@ public:
         arity_++;  // we increment the arity for each added factor
     }
 
-    const std::vector<char>& getOperators() const {
+    const std::vector<char>& operators() const {
         return operators_;
+    }
+
+    const std::vector<std::unique_ptr<ASTNode>>& factors() const {
+        return factors_;
     }
 
 private:
@@ -244,7 +251,11 @@ public:
         arity_++;  // we increment the arity for each added factor
     }
 
-    const std::vector<char>& getOperators() const {
+    const std::vector<std::unique_ptr<ASTNode>>& terms() const {
+        return terms_;
+    }
+
+    const std::vector<char>& operators() const {
         return operators_;
     }
 
@@ -296,20 +307,109 @@ private:
 
 class Program : public ASTNode {
 public:
-  Program();
-  Program(std::vector<std::unique_ptr<ASTNode>>& statements) 
-  : ASTNode(PROGRAM)
-  , statements_(std::move(statements)) {}
+    Program();
+    Program(std::vector<std::unique_ptr<ASTNode>>& statements) 
+    : ASTNode(PROGRAM)
+    , statements_(std::move(statements)) {}
 
-  // Getters
-  ASTNode* child(int idx) const {
-    assert(idx < statements_.size());
-    return statements_[idx].get();
- }
+    // Getters
+    ASTNode* child(int idx) const {
+        assert(idx < statements_.size());
+        return statements_[idx].get();
+    }
+
+    const std::vector<std::unique_ptr<ASTNode>>& statements() const { return statements_; }
 
 private:
     std::vector<std::unique_ptr<ASTNode>> statements_;
 };
+
+export 
+void printTree(const ASTNode* node) {
+    switch (node->type()) {
+        case ASTNode::NodeType::INT:
+            std::cout << "INT: " << static_cast<const Integer*>(node)->value();
+            break;
+        case ASTNode::NodeType::STRING:
+            std::cout << "STRING: " << static_cast<const String*>(node)->value();
+            break;
+        case ASTNode::NodeType::IDENTIFIER:
+            std::cout << "VARIABLE: " << static_cast<const Identifier*>(node)->name();
+            break;
+        case ASTNode::NodeType::FUNC_DEF:
+            std::cout << "FUNC_DEF(" << static_cast<const FunctionDef*>(node)->name() << ", ";
+            for (auto& arg : static_cast<const FunctionDef*>(node)->args()) {
+                std::cout << "ARG: \n" << arg << "\n";
+            }
+            for (auto& statement : static_cast<const FunctionDef*>(node)->statements()) {
+                std::cout << "STATEMENT: \n";
+                printTree(statement.get());
+                std::cout << "\n";
+            }
+            break;
+        case ASTNode::NodeType::FUNC_CALL:
+            std::cout << "FUNC_CALL: " << static_cast<const FunctionCall*>(node)->name() << "\n";
+            printTree(static_cast<const FunctionCall*>(node)->args());
+            break;
+        case ASTNode::NodeType::LAMBDA:
+            std::cout << "LAMBDA\n";
+            break;
+        case ASTNode::NodeType::LIST:
+            std::cout << "LIST [\n";
+            for (auto& element : static_cast<const List*>(node)->elements()) {
+                std::cout << "ELEMENT: "; 
+                printTree(element.get());
+                std::cout << "\n";
+            }
+            std::cout << "]\n";
+            break;
+        case ASTNode::NodeType::FACTOR:
+            std::cout << "FACTOR\n";
+            printTree(static_cast<const Factor*>(node)->child());
+            break;
+        case ASTNode::NodeType::TERM: {
+            std::cout << "TERM(";
+            const Term* term = static_cast<const Term*>(node);
+            int n = term->factors().size();
+            for (int i = 0; i < n; ++i) {
+                printTree(term->factors()[i].get());
+                if (i < n - 1) {
+                    std::cout << term->operators()[i];
+                }
+            }
+            std::cout << ")";
+            break;
+        }
+        case ASTNode::NodeType::ASSIGNMENT:
+            std::cout << "ASSIGNMENT\n";
+            break;
+        case ASTNode::NodeType::EXPRESSION: {
+            std::cout << "EXPRESSION(";
+            const Expression* exp = static_cast<const Expression*>(node);
+            int n = exp->terms().size();
+            for (int i = 0; i < n; ++i) {
+                printTree(exp->terms()[i].get());
+                if (i < n - 1) {
+                    std::cout << exp->operators()[i];
+                }
+            }
+            std::cout << ')';
+            break;
+        }
+        case ASTNode::NodeType::STATEMENT:
+            std::cout << "STATEMENT";
+            printTree(static_cast<const Statement*>(node)->child());
+            break;
+        case ASTNode::NodeType::PROGRAM:
+            std::cout << "PROGRAM\n";
+            for (auto& statement : static_cast<const Program*>(node)->statements()) {
+                printTree(statement.get());
+                std::cout << "\n";
+            }
+            std::cout << "END OF PROGRAM\n";
+            break;
+    }
+}
 
 
 export class Parser {
@@ -434,10 +534,12 @@ std::unique_ptr<ASTNode> Parser::statement() {
             }
             case TokenType::ASSIGN: { /* Variable assignment */
                 node = assignment();
+                break;
             }
             case TokenType::OPEN_PAREN: { /* Function call */
                 next();
                 node = function_call();
+                break;
             }
             case TokenType::SEMICOLON: {
                 next();
@@ -448,6 +550,7 @@ std::unique_ptr<ASTNode> Parser::statement() {
             }
             default: { /* Try parsing an expression */
                 node = expression();
+                break;
             }
         }
     } else if (type == TokenType::KEYWORD_FUNC) {
@@ -597,6 +700,7 @@ std::unique_ptr<ASTNode> Parser::factor() {
                 return function_call();
             }
             /* Identifier */
+            next();
             return std::make_unique<Identifier>(t.lexeme);
         case TokenType::INTEGER:
             next();
@@ -617,6 +721,7 @@ std::unique_ptr<ASTNode> Parser::factor() {
         default:
             parse_error("Bad factor");
     }
+    std::cerr << "Returning nullptr\n";
     return std::unique_ptr<ASTNode>(nullptr);
 }
 

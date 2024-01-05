@@ -4,13 +4,13 @@ import parser;
 #include <iostream>
 #include <string>
 #include <vector>
+#include <memory>
 #include <cstring>
 #include <fstream>
 #include <readline/readline.h>
 #include <readline/history.h>
 
 static void printTokens(std::vector<Token>& tokens) {
-
 	for (auto& token : tokens) {
 		std::cout << "Token: '"
 		          << token.lexeme
@@ -29,7 +29,8 @@ static void processInput(const std::string& input) {
         std::vector<Token> tokens = lexer.tokenize();
         printTokens(tokens);
         parser.setTokens(tokens);
-        parser.parse_program();
+        std::unique_ptr<ASTNode> ast = parser.parse_program();
+		printTree(ast.get());
     } catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;
     }
@@ -37,21 +38,21 @@ static void processInput(const std::string& input) {
 
 int main(int argc, char *argv[]) {
 	if (argc > 1) {
-			// Treat command-line argument as input file
-			const char* filename = argv[1];
-			std::ifstream inputFile(filename);
+	    // Treat command-line argument as input file
+	    const char* filename = argv[1];
+	    std::ifstream inputFile(filename);
 
-			if (!inputFile) {
-				std::cerr << "Error: Unable to open file '" << filename << "'\n";
-				return 1;
-			}
+	    if (!inputFile) {
+		    std::cerr << "Error: Unable to open file '" << filename << "'\n";
+		    return 1;
+	    }
 
-			// Read the content of the file into a string
-			std::string fileContent((std::istreambuf_iterator<char>(inputFile)),
-									std::istreambuf_iterator<char>());
+	    // Read the content of the file into a string
+	    std::string fileContent((std::istreambuf_iterator<char>(inputFile)),
+							    std::istreambuf_iterator<char>());
 
-			processInput(fileContent);
-			return 0;
+	    processInput(fileContent);
+	    return 0;
     }
 
 	// If no input file specified, we default to a REPL
