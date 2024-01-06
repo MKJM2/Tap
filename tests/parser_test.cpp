@@ -65,7 +65,7 @@ TEST(ParserTest, MixedList) {
 }
 
 TEST(ParserTest, ExpressionList) {
-    ASSERT_NO_THROW(parser_tester("[\"John\", 123];"));
+    ASSERT_NO_THROW(parser_tester("[\"John\", 123 + (2 / 3) * 2];"));
 }
 
 TEST(ParserTest, Assignment) {
@@ -88,7 +88,38 @@ TEST(ParserTest, ListInlineTypeAnnotation) {
     ASSERT_NO_THROW(parser_tester("z : [str] = [\"John\", \"Smith\"];"));
 }
 
+TEST(ParserTest, VariableExpression) {
+    ASSERT_NO_THROW(parser_tester("x;"));
+}
+
+TEST(ParserTest, FunctionCallNoArgs) {
+    ASSERT_NO_THROW(parser_tester("print();"));
+}
+
+TEST(ParserTest, FunctionCallSingleArg) {
+    ASSERT_NO_THROW(parser_tester("print(\"Hello, World!\");"));
+}
+
+TEST(ParserTest, FunctionCallMultipleArgs) {
+    ASSERT_NO_THROW(parser_tester("print(\"Hello, World!\", 5, 2 + 3);"));
+}
+
 TEST(ParserTest, Function) {
+    ASSERT_NO_THROW(parser_tester("func fib(n) {\n \
+    return fib(n - 1) + fib(n - 2); \n}"));
+}
+
+TEST(ParserTest, FunctionWithArgTypes) {
+    ASSERT_NO_THROW(parser_tester("func fib(n: int) {\n \
+    return fib(n - 1) + fib(n - 2); \n}"));
+}
+
+TEST(ParserTest, FunctionWithRetTypes) {
+    ASSERT_NO_THROW(parser_tester("func fib(n) : int -> int {\n \
+    return fib(n - 1) + fib(n - 2); \n}"));
+}
+
+TEST(ParserTest, FunctionFullyTyped) {
     ASSERT_NO_THROW(parser_tester("func fib(n: int) : int -> int {\n \
     return fib(n - 1) + fib(n - 2); \n}"));
 }

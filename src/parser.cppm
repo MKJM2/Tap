@@ -107,11 +107,12 @@ public:
   }
 
   FunctionDef() = delete;
-  FunctionDef(std::string& s,
+  FunctionDef(std::string& name) : ASTNode(FUNC_DEF), name_(std::move(name)) {}
+  FunctionDef(std::string& name,
               std::vector<std::string>& args,
               std::vector<std::unique_ptr<ASTNode>>& statements)
       : ASTNode(FUNC_DEF)
-      , name_(std::move(s))
+      , name_(std::move(name))
       , args_(args) 
       , statements_(std::move(statements)) {}
 
@@ -121,7 +122,10 @@ public:
   const std::vector<std::unique_ptr<ASTNode>>& statements() const { return statements_; }
 
   // Setters
-  void add_arg(const std::string arg) { args_.push_back(arg); }
+  void addArg(const std::string arg) { args_.push_back(arg); }
+  void addStatement(std::unique_ptr<ASTNode> statement) {
+      statements_.push_back(std::move(statement));
+  }
 
 private:
     std::string name_;
@@ -216,7 +220,6 @@ public:
     }
 
     void addFactor(std::unique_ptr<ASTNode> factor, const char op = '\0') {
-        assert(factor->type() == FACTOR);
         factors_.push_back(std::move(factor));
         operators_.push_back(op); 
         arity_++;  // we increment the arity for each added factor
@@ -272,13 +275,14 @@ public:
   : ASTNode(ASSIGNMENT)
   , name_(std::move(s))
   , child_(std::move(rhs)) {
-     assert(rhs->type() == IDENTIFIER ||
-            rhs->type() == INT ||
-            rhs->type() == STRING ||
-            rhs->type() == LIST ||
-            rhs->type() == LAMBDA ||
-            rhs->type() == FUNC_CALL ||
-            rhs->type() == EXPRESSION);
+     assert(child_);
+     assert(child_->type() == IDENTIFIER ||
+            child_->type() == INT ||
+            child_->type() == STRING ||
+            child_->type() == LIST ||
+            child_->type() == LAMBDA ||
+            child_->type() == FUNC_CALL ||
+            child_->type() == EXPRESSION);
   };
 
   // Getters
@@ -292,9 +296,10 @@ private:
 
 class Statement : public ASTNode {
 public:
-  Statement() = delete;
-  Statement(std::unique_ptr<ASTNode> node) : ASTNode(STATEMENT), child_(std::move(node)) {
-     assert(node->type() == ASSIGNMENT ||
+    Statement() = delete;
+    Statement(std::unique_ptr<ASTNode> node) : ASTNode(STATEMENT), child_(std::move(node)) {
+        assert(node);
+        assert(node->type() == ASSIGNMENT ||
             node->type() == FUNC_CALL ||
             node->type() == EXPRESSION);
   }
@@ -381,7 +386,10 @@ void printTree(const ASTNode* node) {
             break;
         }
         case ASTNode::NodeType::ASSIGNMENT:
-            std::cout << "ASSIGNMENT\n";
+            std::cout << "ASSIGNMENT(";
+            std::cout << static_cast<const Assignment*>(node)->name() << ", ";
+            printTree(static_cast<const Assignment*>(node)->child());
+            std::cout << ")";
             break;
         case ASTNode::NodeType::EXPRESSION: {
             std::cout << "EXPRESSION(";
@@ -537,12 +545,12 @@ std::unique_ptr<ASTNode> Parser::statement() {
                 break;
             }
             case TokenType::OPEN_PAREN: { /* Function call */
-                next();
                 node = function_call();
                 break;
             }
             case TokenType::SEMICOLON: {
                 next();
+                node = std::make_unique<Identifier>(t.lexeme);
                 break;
             }
             case TokenType::END_OF_FILE: {
@@ -614,17 +622,21 @@ std::unique_ptr<ASTNode> Parser::assignment() {
 
 // function_call   = ident "(" arglist ")" .
 std::unique_ptr<ASTNode> Parser::function_call() {
+    Token tok_name = expect(TokenType::IDENTIFIER);
     expect(TokenType::OPEN_PAREN);
-    std::unique_ptr<ASTNode> args = arglist();
+    std::unique_ptr<ASTNode> args = nullptr;
+    if (peekNext() != TokenType::CLOSE_PAREN) { /* Non-empty arglist */
+        args = arglist();
+    }
     expect(TokenType::CLOSE_PAREN);
-    return std::make_unique<FunctionCall>("placeholder", std::move(args));
+    return std::make_unique<FunctionCall>(tok_name.lexeme, std::move(args));
 }
 
 
 // function_def    = "func" ident "(" typed-arglist ")" "{" {statement} "}" .
 std::unique_ptr<ASTNode> Parser::function_def() {
     expect(TokenType::KEYWORD_FUNC);
-    expect(TokenType::IDENTIFIER);
+    Token tok_name = expect(TokenType::IDENTIFIER);
     expect(TokenType::OPEN_PAREN);
     typed_arglist();
     expect(TokenType::CLOSE_PAREN);
@@ -633,12 +645,13 @@ std::unique_ptr<ASTNode> Parser::function_def() {
         type_annotation();
     }
     expect(TokenType::OPEN_BRACE);
+    std::unique_ptr<FunctionDef> func = std::make_unique<FunctionDef>(tok_name.lexeme);
     while (type != TokenType::CLOSE_BRACE) {
-        statement();
+        func->addStatement(statement());
     }
     expect(TokenType::CLOSE_BRACE);
 
-    return std::unique_ptr<ASTNode>(nullptr); 
+    return func;
 }
 
 std::unique_ptr<ASTNode> Parser::arglist() {
@@ -696,7 +709,6 @@ std::unique_ptr<ASTNode> Parser::factor() {
     switch (type) {
         case TokenType::IDENTIFIER: /* Identifier or function call */
             if (peekNext() == TokenType::OPEN_PAREN) { /* Function call */
-                next();
                 return function_call();
             }
             /* Identifier */
