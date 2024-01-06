@@ -227,7 +227,7 @@ void Lexer::scanToken() {
         case '+': {
             if (match('=')) {
                 addToken(TokenType::ADD_ASSIGN); break;
-            } else if (match('-')) {
+            } else if (match('+')) {
                 addToken(TokenType::OP_INCREMENT); break;
             }
             addToken(TokenType::OP_PLUS); 

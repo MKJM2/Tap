@@ -331,6 +331,7 @@ private:
 
 export 
 void printTree(const ASTNode* node) {
+    if (!node) return;
     switch (node->type()) {
         case ASTNode::NodeType::INT:
             std::cout << "INT: " << static_cast<const Integer*>(node)->value();
@@ -545,7 +546,8 @@ std::unique_ptr<ASTNode> Parser::statement() {
                 break;
             }
             case TokenType::OPEN_PAREN: { /* Function call */
-                node = function_call();
+                // node = function_call();
+                node = expression();
                 break;
             }
             case TokenType::SEMICOLON: {
@@ -563,7 +565,7 @@ std::unique_ptr<ASTNode> Parser::statement() {
         }
     } else if (type == TokenType::KEYWORD_FUNC) {
         // No semicolon required after function definition 
-        node = function_def();
+        return function_def();
     } else if (type == TokenType::KEYWORD_RETURN) {
         // TODO: Return statement
         next();
@@ -625,7 +627,7 @@ std::unique_ptr<ASTNode> Parser::function_call() {
     Token tok_name = expect(TokenType::IDENTIFIER);
     expect(TokenType::OPEN_PAREN);
     std::unique_ptr<ASTNode> args = nullptr;
-    if (peekNext() != TokenType::CLOSE_PAREN) { /* Non-empty arglist */
+    if (peek() != TokenType::CLOSE_PAREN) { /* Non-empty arglist */
         args = arglist();
     }
     expect(TokenType::CLOSE_PAREN);
