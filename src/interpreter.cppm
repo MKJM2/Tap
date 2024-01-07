@@ -61,7 +61,12 @@ private:
 export
 class Interpreter {
 public:
+    Interpreter() {};
     Interpreter(std::unique_ptr<ASTNode> root) : root_(std::move(root)) {}
+
+    void setRoot(std::unique_ptr<ASTNode> root) {
+        root_ = std::move(root);
+    }
 
     Value interpret() {
         return evaluate(root_.get());
@@ -74,7 +79,9 @@ private:
 
     Value evaluateTerm(const Term* node);
     Value evaluateExpression(const Expression* node);
+    Value evaluateFunctionCall(const FunctionCall* node);
     Value applyBinop(const Value& lhs, const Value& rhs, char op);
+    Value applyUnop(const Value& val, char op);
 };
 
 Value Interpreter::evaluate(const ASTNode* node) {
@@ -86,15 +93,47 @@ Value Interpreter::evaluate(const ASTNode* node) {
     switch (node->type()) {
         case ASTNode::INT:
         case ASTNode::STRING:
-        case ASTNode::FUNC_DEF:
-        case ASTNode::LIST:
             return toValue(node);
+        case ASTNode::IDENTIFIER:
+            return env_.get(static_cast<const Identifier*>(node)->name());
+        case ASTNode::FUNC_DEF: {
+            auto func = static_cast<const FunctionDef*>(node);
+            env_.set(func->name(), toValue(node));
+            return Nothing();
+        }
+        case ASTNode::FUNC_CALL:
+            return evaluateFunctionCall(static_cast<const FunctionCall*>(node));
+        case ASTNode::LAMBDA:
+        case ASTNode::LIST:
+            return Nothing(); // TODO: Implement
         case ASTNode::FACTOR:
             return evaluate(static_cast<const Factor*>(node)->child());
         case ASTNode::TERM:
             return evaluateTerm(static_cast<const Term*>(node));
+        case ASTNode::ASSIGNMENT: {
+            auto a = static_cast<const Assignment*>(node);
+            Value rhs = evaluate(a->child());
+            env_.set(a->name(), rhs);
+            return rhs; /* Assignment evaluates to value assigned */
+        }
+        case ASTNode::EXPRESSION:
+            return evaluateExpression(static_cast<const Expression*>(node));
+        case ASTNode::PROGRAM: {
+            auto prog = static_cast<const Program*>(node);
+            size_t nstatements = prog->statements().size();
+            Value res = Nothing();
+            for (size_t i = 0; i < nstatements; ++i) {
+                res = evaluate(prog->statements()[i].get());
+                if (i == nstatements - 1) { 
+                    /* Return value of a program is the return value of its last statement */
+                    return res;
+                }
+            }
+            return res;
+        }
         default:
-            std::cerr << "Unsupported node type encountered\n";
+            std::cerr << "Unsupported node type encountered:" \
+                      << node->type() << std::endl;
             return Nothing();
     }
 
@@ -131,11 +170,25 @@ Value Interpreter::applyBinop(const Value& lhs, const Value& rhs, char op) {
             case '*':
                 return Integer(leftVal * rightVal);
             case '/':
-                // Add division by zero check
+                // TODO: div-by-zero
                 return Integer(leftVal / rightVal);
-            // Add more operators as needed
+            case '+':
+                return Integer(leftVal + rightVal);
+            case '-':
+                return Integer(leftVal - rightVal);
             default:
                 std::cerr << "Unsupported operator encountered\n";
+                return Nothing();
+        }
+    }
+    else if (std::holds_alternative<String>(lhs) && std::holds_alternative<String>(rhs)) {
+        std::string lStr = std::get<String>(lhs).value();
+        std::string rStr = std::get<String>(rhs).value();
+        switch (op) {
+            case '+':
+                return String(lStr + rStr);
+            default:
+                std::cerr << "Unsupported operator for type str\n";
                 return Nothing();
         }
     }
@@ -145,8 +198,37 @@ Value Interpreter::applyBinop(const Value& lhs, const Value& rhs, char op) {
     return Nothing();
 }
 
+// TODO: Currently unary operators aren't supported in the language
+Value Interpreter::applyUnop(const Value& val, char op) {
+    return Nothing();
+}
 
-Value Interpreter::evaluateExpression(const Expression* node) {
+
+Value Interpreter::evaluateExpression(const Expression* expr) {
+
+    if (!expr || expr->terms().empty()) {
+        std::cerr << "Empty or invalid expression encountered\n";
+        return Nothing();
+    }
+
+    // Start with the first term
+    Value result = evaluate(expr->terms().front().get());
+
+    // Apply remaining terms and operators
+    const auto& terms = expr->terms();
+    const auto& operators = expr->operators();
+    for (size_t i = 1; i < terms.size(); ++i) {
+        Value nextTermVal = evaluate(terms[i].get());
+        char op = operators[i - 1];
+
+        result = applyBinop(result, nextTermVal, op);
+    }
+
+    return result;
+}
+
+
+Value Interpreter::evaluateFunctionCall(const FunctionCall* node) {
     return Nothing();
 }
 
@@ -156,9 +238,9 @@ void printValue(const Value& value) {
     std::visit([](auto&& arg) {
         using T = std::decay_t<decltype(arg)>;
         if constexpr (std::is_same_v<T, Integer>) {
-            std::cout << "Integer " << arg.value() << "\n";
+            std::cout << "int = " << arg.value() << "\n";
         } else if constexpr (std::is_same_v<T, String>) {
-            std::cout << "String " << std::quoted(arg.value()) << "\n";
+            std::cout << "str = " << std::quoted(arg.value()) << "\n";
         } else if constexpr (std::is_same_v<T, List>) {
             std::cout << "[";
             for (auto& item : arg.elements()) {
@@ -166,7 +248,7 @@ void printValue(const Value& value) {
             }
             std::cout << "]\n";
         } else if constexpr (std::is_same_v<T, FunctionDef>) {
-            std::cout << "FunctionDef\n";
+            std::cout << "func\n";
         } else if constexpr (std::is_same_v<T, Nothing>) {
             std::cout << "Nothing\n";
         } else {

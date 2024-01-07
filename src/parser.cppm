@@ -36,8 +36,8 @@ protected:
     std::unique_ptr<ASTNode> lambda();
     std::unique_ptr<ASTNode> function_call();
     std::unique_ptr<ASTNode> function_def();
-    std::unique_ptr<ASTNode> arglist();
-    std::unique_ptr<ASTNode> typed_arglist();
+    std::vector<std::unique_ptr<ASTNode>> arglist();
+    std::vector<std::unique_ptr<ASTNode>> typed_arglist();
     void parse_error(std::string err);
 private:
     std::vector<Token> tokens_;
@@ -216,7 +216,7 @@ std::unique_ptr<ASTNode> Parser::assignment() {
 std::unique_ptr<ASTNode> Parser::function_call() {
     Token tok_name = expect(TokenType::IDENTIFIER);
     expect(TokenType::OPEN_PAREN);
-    std::unique_ptr<ASTNode> args = nullptr;
+    std::vector<std::unique_ptr<ASTNode>> args = {};
     if (peek() != TokenType::CLOSE_PAREN) { /* Non-empty arglist */
         args = arglist();
     }
@@ -246,18 +246,18 @@ std::unique_ptr<ASTNode> Parser::function_def() {
     return func;
 }
 
-std::unique_ptr<ASTNode> Parser::arglist() {
+std::vector<std::unique_ptr<ASTNode>> Parser::arglist() {
     expression();
     while (type == TokenType::COMMA) {
         next();
         expression();
     }
 
-    return std::unique_ptr<ASTNode>(nullptr);
+    return {};
 }
 
 // typed_arglist         = [ expression { "," expression } ] .
-std::unique_ptr<ASTNode> Parser::typed_arglist() {
+std::vector<std::unique_ptr<ASTNode>> Parser::typed_arglist() {
     expression();
     if (type == TokenType::COLON) {
         next();
@@ -272,7 +272,7 @@ std::unique_ptr<ASTNode> Parser::typed_arglist() {
         }
     }
 
-    return std::unique_ptr<ASTNode>(nullptr);
+    return {};
 }
 
 std::unique_ptr<ASTNode> Parser::expression() {

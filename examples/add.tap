@@ -1,0 +1,12 @@
+func add(a, b) {
+    return a + b;
+}
+
+x = add(0, 1);  # 1
+y = add(x, 2);  # 3
+z = add(y, 3);  # 6
+
+x;
+y;
+z;
+x + y + z;  # 10

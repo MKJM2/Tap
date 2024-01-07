@@ -23,14 +23,17 @@ static void printTokens(std::vector<Token>& tokens) {
 }
 
 static void processInput(const std::string& input) {
+	static Interpreter interpreter;
     try {
 		std::vector<Token> tokens = Lexer(input).tokenize();
-		std::cout << "Lexer output:\n";
-		printTokens(tokens);
+		// std::cout << "Lexer output:\n";
+		// printTokens(tokens);
 		std::unique_ptr<ASTNode> ast = Parser(tokens).parse_program();
 		std::cout << "Parser output:\n";
 		printTree(ast.get());
-		Value result = Interpreter(std::move(ast)).interpret();
+		// Value result = Interpreter(std::move(ast)).interpret();
+		interpreter.setRoot(std::move(ast));
+		Value result = interpreter.interpret();
 		std::cout << "Interpreter output:\n";
 		printValue(result);
 

@@ -4,6 +4,7 @@ module;
 #include <memory>
 #include <string>
 #include <variant>
+#include <iomanip>
 #include <assert.h>
 #include <iostream>
 #include <functional>
@@ -198,19 +199,22 @@ export
 class FunctionCall : public ASTNode {
 public:
   FunctionCall() = delete;
-  FunctionCall(std::string s, std::unique_ptr<ASTNode> args)
+  FunctionCall(std::string s, std::vector<std::unique_ptr<ASTNode>> args)
     : ASTNode(FUNC_CALL)
     , name_(std::move(s))
     , args_(std::move(args)) {}
 
   FunctionCall(FunctionCall const& other)
   : ASTNode(FUNC_CALL)
-  , name_(other.name_)
-  , args_(other.args_->clone()) {}
+  , name_(other.name_) {
+    for (auto& arg : other.args_) {
+        args_.push_back(arg->clone());
+    }
+  }
 
   // Getters
   const std::string name() const { return name_ ; }
-  const ASTNode *args() const { return args_.get() ; }
+  const std::vector<std::unique_ptr<ASTNode>>& args() const { return args_; }
 
 protected:
   virtual FunctionCall* clone_impl() const override {
@@ -219,7 +223,7 @@ protected:
 
 private:
     std::string name_;
-    std::unique_ptr<ASTNode> args_;
+    std::vector<std::unique_ptr<ASTNode>> args_;
 };
 
 export
@@ -478,7 +482,7 @@ void printTree(const ASTNode* node) {
             std::cout << "INT: " << static_cast<const Integer*>(node)->value();
             break;
         case ASTNode::NodeType::STRING:
-            std::cout << "STRING: " << static_cast<const String*>(node)->value();
+            std::cout << "STRING: " << std::quoted(static_cast<const String*>(node)->value());
             break;
         case ASTNode::NodeType::IDENTIFIER:
             std::cout << "VARIABLE: " << static_cast<const Identifier*>(node)->name();
@@ -496,7 +500,11 @@ void printTree(const ASTNode* node) {
             break;
         case ASTNode::NodeType::FUNC_CALL:
             std::cout << "FUNC_CALL: " << static_cast<const FunctionCall*>(node)->name() << "\n";
-            printTree(static_cast<const FunctionCall*>(node)->args());
+            for (auto& arg : static_cast<const FunctionCall*>(node)->args()) {
+                std::cout << "ARG: \n";
+                printTree(arg.get());
+                std::cout << "\n";
+            }
             break;
         case ASTNode::NodeType::LAMBDA:
             std::cout << "LAMBDA\n";
