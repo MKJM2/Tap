@@ -22,6 +22,30 @@ constexpr bool always_false = false;
 export
 using Value = std::variant<Nothing, Integer, String, List, FunctionDef>;
 
+export
+void printValue(const Value& value) {
+    std::visit([](auto&& arg) {
+        using T = std::decay_t<decltype(arg)>;
+        if constexpr (std::is_same_v<T, Integer>) {
+            std::cout << arg.value() << " : int\n";
+        } else if constexpr (std::is_same_v<T, String>) {
+            std::cout << std::quoted(arg.value()) << " : str\n";
+        } else if constexpr (std::is_same_v<T, List>) {
+            std::cout << "[";
+            for (auto& item : arg.elements()) {
+                std::cout << "Element , "; // TODO: Fix
+            }
+            std::cout << "]\n";
+        } else if constexpr (std::is_same_v<T, FunctionDef>) {
+            std::cout << arg.name() << " : func\n";
+        } else if constexpr (std::is_same_v<T, Nothing>) {
+            std::cout << "null\n";
+        } else {
+            static_assert(always_false<T>, "non-exhaustive visitor!");
+        }
+    }, value);
+}
+
 Value toValue(const ASTNode* node) {
     switch (node->type()) {
         case ASTNode::INT:
@@ -40,6 +64,7 @@ Value toValue(const ASTNode* node) {
 
 
 class Environment {
+friend class Interpreter;
 public:
     void set(const std::string& name, Value value) {
         table_[name] = value;
@@ -50,12 +75,19 @@ public:
         if (it != table_.end()) {
             return it->second;
         }
-        // Handle undefined variable error
-        throw std::runtime_error("Undefined variable: " + name);
+        throw std::runtime_error("Undefined name: " + name);
     }
 
 private:
     std::unordered_map<std::string, Value> table_;
+
+    void print() const {
+        std::cout << "Environment:\n";
+        for (auto& [name, value] : table_) {
+            std::cout << name << " :: ";
+            printValue(value);
+        }
+    }
 };
 
 export
@@ -72,21 +104,27 @@ public:
         return evaluate(root_.get());
     }
 
-    Value evaluate(const ASTNode* node);
+    // Default to global environment
+    Value evaluate(const ASTNode* node) {
+        return evaluate(node, env_);
+    }
+
+    // Evaluate in a given environment
+    Value evaluate(const ASTNode* node, Environment& env);
 private:
     std::unique_ptr<ASTNode> root_;
     Environment env_;
 
-    Value evaluateTerm(const Term* node);
-    Value evaluateExpression(const Expression* node);
-    Value evaluateFunctionCall(const FunctionCall* node);
+    Value evaluateTerm(const Term* node, Environment& env);
+    Value evaluateExpression(const Expression* node, Environment& env);
+    Value evaluateFunctionCall(const FunctionCall* node, Environment& env);
     Value applyBinop(const Value& lhs, const Value& rhs, char op);
     Value applyUnop(const Value& val, char op);
 };
 
-Value Interpreter::evaluate(const ASTNode* node) {
+Value Interpreter::evaluate(const ASTNode* node, Environment& env) {
     if (!node) {
-        std::cerr << "Empty node encountered\n";
+        // std::cerr << "Empty node encountered\n";
         return Nothing();
     }
 
@@ -95,35 +133,35 @@ Value Interpreter::evaluate(const ASTNode* node) {
         case ASTNode::STRING:
             return toValue(node);
         case ASTNode::IDENTIFIER:
-            return env_.get(static_cast<const Identifier*>(node)->name());
+            return env.get(static_cast<const Identifier*>(node)->name());
         case ASTNode::FUNC_DEF: {
             auto func = static_cast<const FunctionDef*>(node);
-            env_.set(func->name(), toValue(node));
-            return Nothing();
+            env.set(func->name(), toValue(node));
+            return toValue(func);
         }
         case ASTNode::FUNC_CALL:
-            return evaluateFunctionCall(static_cast<const FunctionCall*>(node));
+            return evaluateFunctionCall(static_cast<const FunctionCall*>(node), env);
         case ASTNode::LAMBDA:
         case ASTNode::LIST:
             return Nothing(); // TODO: Implement
         case ASTNode::FACTOR:
-            return evaluate(static_cast<const Factor*>(node)->child());
+            return evaluate(static_cast<const Factor*>(node)->child(), env);
         case ASTNode::TERM:
-            return evaluateTerm(static_cast<const Term*>(node));
+            return evaluateTerm(static_cast<const Term*>(node), env);
         case ASTNode::ASSIGNMENT: {
             auto a = static_cast<const Assignment*>(node);
-            Value rhs = evaluate(a->child());
-            env_.set(a->name(), rhs);
+            Value rhs = evaluate(a->child(), env);
+            env.set(a->name(), rhs);
             return rhs; /* Assignment evaluates to value assigned */
         }
         case ASTNode::EXPRESSION:
-            return evaluateExpression(static_cast<const Expression*>(node));
+            return evaluateExpression(static_cast<const Expression*>(node), env);
         case ASTNode::PROGRAM: {
             auto prog = static_cast<const Program*>(node);
             size_t nstatements = prog->statements().size();
             Value res = Nothing();
             for (size_t i = 0; i < nstatements; ++i) {
-                res = evaluate(prog->statements()[i].get());
+                res = evaluate(prog->statements()[i].get(), env);
                 if (i == nstatements - 1) { 
                     /* Return value of a program is the return value of its last statement */
                     return res;
@@ -136,24 +174,23 @@ Value Interpreter::evaluate(const ASTNode* node) {
                       << node->type() << std::endl;
             return Nothing();
     }
-
     return Nothing();
 }
 
-Value Interpreter::evaluateTerm(const Term* term) {
+Value Interpreter::evaluateTerm(const Term* term, Environment &env) {
     if (!term || term->factors().empty()) {
         std::cerr << "Empty or invalid term encountered\n";
         return Nothing();
     }
 
     // First factor is the starting value
-    Value result = evaluate(term->factors().front().get());
+    Value result = evaluate(term->factors().front().get(), env);
 
     // Apply remaining factors and operators
     const auto& factors = term->factors();
     const auto& operators = term->operators();
     for (size_t i = 1; i < factors.size(); ++i) {
-        Value nextFactorVal = evaluate(factors[i].get());
+        Value nextFactorVal = evaluate(factors[i].get(), env);
         char op = operators[i - 1];
 
         result = applyBinop(result, nextFactorVal, op);
@@ -200,11 +237,12 @@ Value Interpreter::applyBinop(const Value& lhs, const Value& rhs, char op) {
 
 // TODO: Currently unary operators aren't supported in the language
 Value Interpreter::applyUnop(const Value& val, char op) {
+    std::cerr << "Unary operators are not currently supported\n";
     return Nothing();
 }
 
 
-Value Interpreter::evaluateExpression(const Expression* expr) {
+Value Interpreter::evaluateExpression(const Expression* expr, Environment& env) {
 
     if (!expr || expr->terms().empty()) {
         std::cerr << "Empty or invalid expression encountered\n";
@@ -212,13 +250,13 @@ Value Interpreter::evaluateExpression(const Expression* expr) {
     }
 
     // Start with the first term
-    Value result = evaluate(expr->terms().front().get());
+    Value result = evaluate(expr->terms().front().get(), env);
 
     // Apply remaining terms and operators
     const auto& terms = expr->terms();
     const auto& operators = expr->operators();
     for (size_t i = 1; i < terms.size(); ++i) {
-        Value nextTermVal = evaluate(terms[i].get());
+        Value nextTermVal = evaluate(terms[i].get(), env);
         char op = operators[i - 1];
 
         result = applyBinop(result, nextTermVal, op);
@@ -227,32 +265,48 @@ Value Interpreter::evaluateExpression(const Expression* expr) {
     return result;
 }
 
+/**
+ * @brief Evaluate a function call
+ * @param node Function call AST node
+ * @return Value returned by the function
+ * @todo Implement type checking
+ */
+Value Interpreter::evaluateFunctionCall(const FunctionCall* node, Environment& env) {
+    // Check if function defined in current environment
+    Value func = env.get(node->name());
+    if (!std::holds_alternative<FunctionDef>(func)) {
+        std::cerr << "Undefined function: " << node->name() << std::endl;
+        return Nothing();
+    }
+    const FunctionDef& funcDef = std::get<FunctionDef>(func);
 
-Value Interpreter::evaluateFunctionCall(const FunctionCall* node) {
+    // Each function call has its own extended environment (copy of global env)
+    Environment funcEnv(env);
+
+    // Evaluate arguments and bind them to parameter names
+    const auto& passed_args = node->args();
+    const auto& args = funcDef.args();
+
+    if (passed_args.size() != args.size()) {
+        std::cerr << "Invalid number of arguments passed to function " << node->name() << "\n";
+        std::cerr << "Currying is currently not implemented\n";
+        return Nothing();
+    }
+
+    for (size_t i = 0; i < passed_args.size(); ++i) {
+        Value argVal = evaluate(passed_args[i].get(), env);
+        funcEnv.set(args[i], argVal);
+    }
+
+    // Evaluate function body in the extended environment (Dynamic scoping)
+    // Note: The first encountered value-returning statement in the function body is returned
+    for (auto& statement : funcDef.statements()) {
+        Value res = evaluate(statement.get(), funcEnv);
+        if (!std::holds_alternative<Nothing>(res)) {
+            return res;
+        }
+    }
+    std::cerr << "Unexpected end of function " << node->name() << ". Is void?\n";
     return Nothing();
 }
 
-
-export
-void printValue(const Value& value) {
-    std::visit([](auto&& arg) {
-        using T = std::decay_t<decltype(arg)>;
-        if constexpr (std::is_same_v<T, Integer>) {
-            std::cout << "int = " << arg.value() << "\n";
-        } else if constexpr (std::is_same_v<T, String>) {
-            std::cout << "str = " << std::quoted(arg.value()) << "\n";
-        } else if constexpr (std::is_same_v<T, List>) {
-            std::cout << "[";
-            for (auto& item : arg.elements()) {
-                std::cout << "Element , "; // TODO: Fix
-            }
-            std::cout << "]\n";
-        } else if constexpr (std::is_same_v<T, FunctionDef>) {
-            std::cout << "func\n";
-        } else if constexpr (std::is_same_v<T, Nothing>) {
-            std::cout << "Nothing\n";
-        } else {
-            static_assert(always_false<T>, "non-exhaustive visitor!");
-        }
-    }, value);
-}

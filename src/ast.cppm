@@ -187,8 +187,9 @@ public:
   }
 
 protected:
-  virtual FunctionDef* clone_impl() const override { return new FunctionDef(*this); };  
-
+    virtual FunctionDef* clone_impl() const override { 
+        return new FunctionDef(*this); 
+    } 
 private:
     std::string name_;
     std::vector<std::string> args_;
@@ -337,6 +338,10 @@ public:
     const std::vector<std::unique_ptr<ASTNode>>& factors() const {
         return factors_;
     }
+
+    const size_t size() const {
+        return factors_.size();
+    }
 protected: 
     virtual Term* clone_impl() const override {
         return new Term(*this);
@@ -378,6 +383,10 @@ public:
 
     const std::vector<char>& operators() const {
         return operators_;
+    }
+
+    const size_t size() const {
+        return terms_.size();
     }
 protected: 
     virtual Expression* clone_impl() const override {

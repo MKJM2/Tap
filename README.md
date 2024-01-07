@@ -18,7 +18,7 @@ lambda          = "\" ident "." expression .
 function_call   = ident "(" arglist ")" .
 function_def    = "func" ident "(" typed-arglist ")" "{" {statement} "}" .
 arglist         = [ expression { "," expression } ] .
-typed-arglist   = [ expression [ ":" type-annotation ] { "," expression [ ":" type-annotation ] } ] .
+typed-arglist   = [ ident [ ":" type-annotation ] { "," ident [ ":" type-annotation ] } ] .
 ident           = letter { letter | digit } .
 type-ident      = "int" | "str" | "float" .
 integer         = digit {digit} .
@@ -44,7 +44,7 @@ z : [str] = ["John", "Smith"];
 f : int -> int = \x. x + 5;   
 
 # Recursive functions
-func fib(n: int) : int -> int {
+func fib(n: int) : int {
     return fib(n - 1) + fib(n - 2);   
 }
 
@@ -54,7 +54,7 @@ func add(x, y) {
     x + y;   
 }
 
-func sub(x: int, y: int) -> int {
+func sub(x: int, y: int) : int {
     x - y;
 }
 
@@ -81,6 +81,8 @@ car : struct {
 # For loops
 
 # While loops
+
+# If statements
 
 ```
 ### Dependencies

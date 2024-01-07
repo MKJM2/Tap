@@ -230,14 +230,20 @@ std::unique_ptr<ASTNode> Parser::function_def() {
     expect(TokenType::KEYWORD_FUNC);
     Token tok_name = expect(TokenType::IDENTIFIER);
     expect(TokenType::OPEN_PAREN);
-    typed_arglist();
+    std::unique_ptr<FunctionDef> func = std::make_unique<FunctionDef>(tok_name.lexeme);
+    std::vector<std::unique_ptr<ASTNode>> args = {};
+    if (peek() != TokenType::CLOSE_PAREN) {
+        args = typed_arglist();
+    }
+    for (auto& arg : args) {
+        func->addArg(static_cast<Identifier&>(*arg).name());
+    }
     expect(TokenType::CLOSE_PAREN);
     if (type == TokenType::COLON) { /* Optional type annotation */
         next();
         type_annotation();
     }
     expect(TokenType::OPEN_BRACE);
-    std::unique_ptr<FunctionDef> func = std::make_unique<FunctionDef>(tok_name.lexeme);
     while (type != TokenType::CLOSE_BRACE) {
         func->addStatement(statement());
     }
@@ -247,32 +253,40 @@ std::unique_ptr<ASTNode> Parser::function_def() {
 }
 
 std::vector<std::unique_ptr<ASTNode>> Parser::arglist() {
-    expression();
+    std::vector<std::unique_ptr<ASTNode>> args; /* A list of expressions */
+    args.push_back(expression());
     while (type == TokenType::COMMA) {
         next();
-        expression();
+        args.push_back(expression());
     }
 
-    return {};
+    return args;
 }
 
 // typed_arglist         = [ expression { "," expression } ] .
 std::vector<std::unique_ptr<ASTNode>> Parser::typed_arglist() {
-    expression();
+    std::vector<std::unique_ptr<ASTNode>> args; /* A list of string identifiers */
+    args.push_back(factor());
     if (type == TokenType::COLON) {
         next();
         type_annotation();
     }
     while (type == TokenType::COMMA) {
         next();
-        expression();
+        args.push_back(factor());
         if (type == TokenType::COLON) {
             next();
             type_annotation();
         }
     }
 
-    return {};
+    // Ensure all args are identifiers
+    for (auto& arg : args) {
+        if (arg->type() != ASTNode::IDENTIFIER)
+            parse_error("Invalid argument type: expected string identifier");
+    }
+
+    return args;
 }
 
 std::unique_ptr<ASTNode> Parser::expression() {
@@ -292,6 +306,12 @@ std::unique_ptr<ASTNode> Parser::term() {
         next();
         t->addFactor(factor(), op);
     }
+
+    // TODO: Hacky, if the term has only one factor, return that factor
+    // if (t->size() == 1) {
+    //     return std::move(t->factors().front());
+    // }
+
     return t;
 }
 

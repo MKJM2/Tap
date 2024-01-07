@@ -29,12 +29,12 @@ static void processInput(const std::string& input) {
 		// std::cout << "Lexer output:\n";
 		// printTokens(tokens);
 		std::unique_ptr<ASTNode> ast = Parser(tokens).parse_program();
-		std::cout << "Parser output:\n";
-		printTree(ast.get());
+		// std::cout << "Parser output:\n";
+		// printTree(ast.get());
 		// Value result = Interpreter(std::move(ast)).interpret();
 		interpreter.setRoot(std::move(ast));
 		Value result = interpreter.interpret();
-		std::cout << "Interpreter output:\n";
+		// std::cout << "Interpreter output:\n";
 		printValue(result);
 
     } catch (const std::exception& e) {

@@ -381,12 +381,27 @@ bool Lexer::isDigit(char c) {
     return c >= '0' && c <= '9';
 }
 
+/**
+ * @brief A character is considered alphabetic if it is a letter 
+ * or an underscore (we allow underscores in Identifiers)
+ * @param c 
+ * @return true 
+ * @return false 
+ */
 bool Lexer::isAlpha(char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 }
 
+/**
+ * @brief A character is considered alphanumeric if it is a letter,
+ * a digit, or an underscore (we allow underscores in Identifiers)
+ * 
+ * @param c 
+ * @return true 
+ * @return false 
+ */
 bool Lexer::isAlphaNumeric(char c) {
-    return isAlpha(c) || isDigit(c);
+    return isAlpha(c) || isDigit(c) || c == '_';
 }
 
 void Lexer::addToken(TokenType type) {
