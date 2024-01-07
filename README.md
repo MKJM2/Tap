@@ -6,7 +6,6 @@ A simple interpreted programming language.
 program         = {statement} .
 statement       = [assignment ";"]
                   [ident ":" type-annotation ";"]
-                  [function_call ";" ]
                   [expression ";" ] 
                   ["return" expression ";" ] .
 assignment      = ident [ ":" type-annotation ] "=" expression { "," ident "=" expression } .

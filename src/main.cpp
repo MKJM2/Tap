@@ -1,5 +1,7 @@
 import lexer;
+import ast;
 import parser;
+import interpreter;
 
 #include <iostream>
 #include <string>
@@ -21,16 +23,17 @@ static void printTokens(std::vector<Token>& tokens) {
 }
 
 static void processInput(const std::string& input) {
-    Lexer lexer;
-    Parser parser;
-
     try {
-        lexer.setSource(input);
-        std::vector<Token> tokens = lexer.tokenize();
-        printTokens(tokens);
-        parser.setTokens(tokens);
-        std::unique_ptr<ASTNode> ast = parser.parse_program();
+		std::vector<Token> tokens = Lexer(input).tokenize();
+		std::cout << "Lexer output:\n";
+		printTokens(tokens);
+		std::unique_ptr<ASTNode> ast = Parser(tokens).parse_program();
+		std::cout << "Parser output:\n";
 		printTree(ast.get());
+		Value result = Interpreter(std::move(ast)).interpret();
+		std::cout << "Interpreter output:\n";
+		printValue(result);
+
     } catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;
     }

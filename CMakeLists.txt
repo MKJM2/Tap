@@ -22,14 +22,29 @@ target_sources(lexer
       src/lexer.cppm
 )
 
+add_library(ast)
+target_sources(ast 
+  PUBLIC
+    FILE_SET CXX_MODULES FILES 
+      src/ast.cppm
+)
+
 add_library(parser)
 target_sources(parser 
   PUBLIC
     FILE_SET CXX_MODULES FILES 
       src/lexer.cppm
+      src/ast.cppm
       src/parser.cppm
 )
 
+add_library(interpreter)
+target_sources(interpreter 
+  PUBLIC
+    FILE_SET CXX_MODULES FILES 
+      src/ast.cppm
+      src/interpreter.cppm
+)
 
 add_subdirectory(tests)
 
@@ -38,4 +53,4 @@ add_executable(tap src/main.cpp)
 # Include the Readline headers
 # target_include_directories(tap PRIVATE ${Readline_INCLUDE_DIRS})
 
-target_link_libraries(tap lexer parser readline)
+target_link_libraries(tap lexer ast parser interpreter readline)
