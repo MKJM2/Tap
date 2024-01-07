@@ -2,12 +2,13 @@ module;
 
 import ast;
 
-#include <iostream>
-#include <iomanip>
-#include <variant>
-#include <unordered_map>
 #include <memory>
 #include <string>
+#include <iomanip>
+#include <variant>
+#include <iostream>
+#include <functional>
+#include <unordered_map>
 
 export module interpreter;
 
@@ -21,6 +22,28 @@ constexpr bool always_false = false;
 export
 using Value = std::variant<Integer, String, List, FunctionDef, Nothing>;
 
+/*
+class Environment {
+public:
+    void set(const std::string& name, Value value) {
+        table_[name] = value;
+    }
+
+    Value get(const std::string& name) const {
+        auto it = table_.find(name);
+        if (it != table_.end()) {
+            return it->second;
+        }
+        // Handle undefined variable error
+        throw std::runtime_error("Undefined variable: " + name);
+    }
+
+private:
+    std::unordered_map<std::string, Value> table_;
+};
+*/
+
+
 export
 class Interpreter {
 public:
@@ -30,10 +53,10 @@ public:
         return evaluate(root_.get());
     }
 
-    Value evaluate(const ASTNode* node);
+    Value evaluate(ASTNode* node);
 private:
     std::unique_ptr<ASTNode> root_;
-    std::unordered_map<std::string, Value> environment_;
+    // Environment env_;
 
     Value evaluateExpression(const Expression* node) {
         // Implement expression evaluation logic...
@@ -44,13 +67,9 @@ private:
         // Implement term evaluation logic...
         return Nothing();
     }
-
-    // More evaluation methods for different types of nodes...
-
-    // Utility methods for the runtime environment...
 };
 
-Value Interpreter::evaluate(const ASTNode* node) {
+Value Interpreter::evaluate(ASTNode* node) {
     if (!node) {
         std::cerr << "Empty node encountered\n";
         return Nothing();
