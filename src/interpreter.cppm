@@ -20,9 +20,7 @@ constexpr bool always_false = false;
 
 // (Non-expression) statements evaluate to nothing
 export
-using Value = std::variant<Integer, String, List, FunctionDef, Nothing>;
-
-/*
+using Value = std::variant<Nothing, Integer, String, List, FunctionDef>;
 class Environment {
 public:
     void set(const std::string& name, Value value) {
@@ -41,8 +39,6 @@ public:
 private:
     std::unordered_map<std::string, Value> table_;
 };
-*/
-
 
 export
 class Interpreter {
@@ -56,7 +52,7 @@ public:
     Value evaluate(ASTNode* node);
 private:
     std::unique_ptr<ASTNode> root_;
-    // Environment env_;
+    Environment env_;
 
     Value evaluateExpression(const Expression* node) {
         // Implement expression evaluation logic...

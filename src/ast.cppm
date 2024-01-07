@@ -85,6 +85,14 @@ public:
   // Name of the variable
   const int value() const { return value_ ; }
 
+  Integer& operator=(Integer other) {
+    swap(*this, other);
+    return *this;
+  }
+  friend void swap(Integer& first, Integer& second) noexcept {
+      std::swap(first.value_, second.value_);
+  }
+
 protected:
     virtual Integer* clone_impl() const override {
         return new Integer(*this);
@@ -105,6 +113,14 @@ public:
   String() = delete;
   String(const char* s) : ASTNode(STRING), value_(s) {}
   String(std::string s) : ASTNode(STRING), value_(std::move(s)) {}
+
+  String& operator=(String other) {
+    swap(*this, other);
+    return *this;
+  }
+  friend void swap(String& first, String& second) noexcept {
+      std::swap(first.value_, second.value_);
+  }
 
   // Name of the variable
   const std::string value() const { return value_ ; }
@@ -144,6 +160,11 @@ public:
     }
   }
 
+  FunctionDef& operator=(FunctionDef other) {
+      swap(*this, other);
+      return *this;
+  }
+
   // Getters
   std::string name() const { return name_ ; }
   std::vector<std::string> args() const { return args_ ; }
@@ -153,6 +174,13 @@ public:
   void addArg(const std::string arg) { args_.push_back(arg); }
   void addStatement(std::unique_ptr<ASTNode> statement) {
       statements_.push_back(std::move(statement));
+  }
+
+  friend void swap(FunctionDef& first, FunctionDef& second) noexcept {
+      using std::swap;
+      swap(first.name_, second.name_);
+      swap(first.args_, second.args_);
+      swap(first.statements_, second.statements_);
   }
 
 protected:
@@ -230,6 +258,14 @@ public:
     for (auto& el : other.elements_) {
         elements_.push_back(el->clone());
     }
+  }
+
+  List& operator=(List other) {
+    swap(*this, other);
+    return *this;
+  }
+  friend void swap(List& first, List& second) noexcept {
+      std::swap(first.elements_, second.elements_);
   }
 
   // Getters
