@@ -12,6 +12,10 @@ import interpreter;
 #include <readline/readline.h>
 #include <readline/history.h>
 
+#define NAME ("Tap")
+#define VERSION ("0.0.1")
+#define AUTHOR ("Michal Kurek")
+
 static void printTokens(std::vector<Token>& tokens) {
 	for (auto& token : tokens) {
 		std::cout << "Token: '"
@@ -64,6 +68,10 @@ int main(int argc, char *argv[]) {
 	// If no input file specified, we default to a REPL
 	char *cstr{};
 	std::string input{};
+
+    // Print basic info
+    std::cout << NAME << " " << VERSION << " (c) " << AUTHOR << " 2024" << std::endl;
+    std::cout << "Built on " << __DATE__ << " " << __TIME__ << std::endl;
 
 	while (1) {
 

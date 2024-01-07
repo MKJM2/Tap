@@ -5,6 +5,8 @@ import parser;
 #include <string>
 #include <gtest/gtest.h>
 
+// TODO: lexer_tester
+
 void parser_tester(std::string input) {
     static Lexer lexer;
     static Parser parser;

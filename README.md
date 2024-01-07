@@ -1,5 +1,15 @@
 # Tap
-A simple interpreted programming language.
+A simple strongly-typed interpretted programming language crafted
+in modern C++. Tap's syntax is a fusion of features offered by 
+language I love: C++, Haskell, Rust, GoLang, OCaml.
+
+Tap was built as a playground for learning programming language design,
+C++17 and C++20 features (including modules, variants), CMake 
+project management and unit testing (using GoogleTest).
+As such, I implement my own lexer, parser, and interpreter
+(no GNU Bison used).
+
+Disclaimer: Tap is in its infancy and many of the features are still not implemented.
 
 ### Grammar (EBNF)
 ```
@@ -27,7 +37,7 @@ character       = UTF8 \ '"' .
 letter          = ['a'-'z'] | ['A' - 'Z' ] .
 ```
 
-### Example Syntax
+### Syntax examples
 ```
 # Variable assignment
 x = 5;   
@@ -36,10 +46,11 @@ x = 5;
 y : int;
 y = 20;
 
-y : int = 20;  # Type signatures can be inlined
+y : int = 20;  # Type annotations can be inlined
 
 # Lists
 z : [str] = ["John", "Smith"];  
+
 # Lambda expressions
 f : int -> int = \x. x + 5;   
 
@@ -58,10 +69,10 @@ func sub(x: int, y: int) : int {
     x - y;
 }
 
+# Functions are first class citizens
 add2 = \x. add(2, x);
 
-# Functions are first class citizens
-func custom_add_x(x: int) : int -> int -> int {
+func custom_inc(x: int) : int -> int -> int {
     \y. add(x, y);
 }
 
@@ -88,6 +99,15 @@ car : struct {
 ### Dependencies
 - CMake
 - Ninja
+- GoogleTest
 - libreadline
 - C++20 compatible compiler
 
+### Building
+To build the project, from the root directory execute
+```bash
+mkdir build
+cd build
+cmake -GNinja ..
+ninja
+```
