@@ -94,14 +94,14 @@ export
 class Interpreter {
 public:
     Interpreter() {};
-    Interpreter(std::unique_ptr<ASTNode> root) : root_(std::move(root)) {}
+    Interpreter(ASTNode *root) : root_(std::move(root)) {}
 
-    void setRoot(std::unique_ptr<ASTNode> root) {
+    void setRoot(ASTNode* root) {
         root_ = std::move(root);
     }
 
     Value interpret() {
-        return evaluate(root_.get());
+        return evaluate(root_);
     }
 
     // Default to global environment
@@ -112,7 +112,7 @@ public:
     // Evaluate in a given environment
     Value evaluate(const ASTNode* node, Environment& env);
 private:
-    std::unique_ptr<ASTNode> root_;
+    ASTNode* root_;
     Environment env_;
 
     Value evaluateTerm(const Term* node, Environment& env);
@@ -161,7 +161,7 @@ Value Interpreter::evaluate(const ASTNode* node, Environment& env) {
             size_t nstatements = prog->statements().size();
             Value res = Nothing();
             for (size_t i = 0; i < nstatements; ++i) {
-                res = evaluate(prog->statements()[i].get(), env);
+                res = evaluate(prog->statements()[i], env);
                 if (i == nstatements - 1) { 
                     /* Return value of a program is the return value of its last statement */
                     return res;
@@ -184,13 +184,13 @@ Value Interpreter::evaluateTerm(const Term* term, Environment &env) {
     }
 
     // First factor is the starting value
-    Value result = evaluate(term->factors().front().get(), env);
+    Value result = evaluate(term->factors().front(), env);
 
     // Apply remaining factors and operators
     const auto& factors = term->factors();
     const auto& operators = term->operators();
     for (size_t i = 1; i < factors.size(); ++i) {
-        Value nextFactorVal = evaluate(factors[i].get(), env);
+        Value nextFactorVal = evaluate(factors[i], env);
         char op = operators[i - 1];
 
         result = applyBinop(result, nextFactorVal, op);
@@ -222,8 +222,10 @@ Value Interpreter::applyBinop(const Value& lhs, const Value& rhs, char op) {
         std::string lStr = std::get<String>(lhs).value();
         std::string rStr = std::get<String>(rhs).value();
         switch (op) {
-            case '+':
-                return String(lStr + rStr);
+            case '+': {
+                std::string concatenated = lStr + rStr;
+                return String(concatenated);
+            }
             default:
                 std::cerr << "Unsupported operator for type str\n";
                 return Nothing();
@@ -250,13 +252,13 @@ Value Interpreter::evaluateExpression(const Expression* expr, Environment& env) 
     }
 
     // Start with the first term
-    Value result = evaluate(expr->terms().front().get(), env);
+    Value result = evaluate(expr->terms().front(), env);
 
     // Apply remaining terms and operators
     const auto& terms = expr->terms();
     const auto& operators = expr->operators();
     for (size_t i = 1; i < terms.size(); ++i) {
-        Value nextTermVal = evaluate(terms[i].get(), env);
+        Value nextTermVal = evaluate(terms[i], env);
         char op = operators[i - 1];
 
         result = applyBinop(result, nextTermVal, op);
@@ -294,14 +296,14 @@ Value Interpreter::evaluateFunctionCall(const FunctionCall* node, Environment& e
     }
 
     for (size_t i = 0; i < passed_args.size(); ++i) {
-        Value argVal = evaluate(passed_args[i].get(), env);
+        Value argVal = evaluate(passed_args[i], env);
         funcEnv.set(args[i], argVal);
     }
 
     // Evaluate function body in the extended environment (Dynamic scoping)
     // Note: The first encountered value-returning statement in the function body is returned
     for (auto& statement : funcDef.statements()) {
-        Value res = evaluate(statement.get(), funcEnv);
+        Value res = evaluate(statement, funcEnv);
         if (!std::holds_alternative<Nothing>(res)) {
             return res;
         }

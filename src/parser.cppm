@@ -18,7 +18,7 @@ public:
         type = t.size() > 0 ? t[0].type : TokenType::END_OF_FILE;
     }
     void setTokens(std::vector<Token> &tokens);
-    std::unique_ptr<ASTNode> parse_program();
+    Program* parse_program();
 protected:
     Token curr();
     Token expect(TokenType type);
@@ -26,18 +26,18 @@ protected:
     TokenType peek();
     TokenType peekNext();
     /* One function per each EBNF rule */
-    std::unique_ptr<ASTNode> statement();
-    std::unique_ptr<ASTNode> assignment();
-    std::unique_ptr<ASTNode> type_annotation();
-    std::unique_ptr<ASTNode> expression();
-    std::unique_ptr<ASTNode> term();
-    std::unique_ptr<ASTNode> factor();
-    std::unique_ptr<ASTNode> list();
-    std::unique_ptr<ASTNode> lambda();
-    std::unique_ptr<ASTNode> function_call();
-    std::unique_ptr<ASTNode> function_def();
-    std::vector<std::unique_ptr<ASTNode>> arglist();
-    std::vector<std::unique_ptr<ASTNode>> typed_arglist();
+    ASTNode* statement();
+    Assignment* assignment();
+    ASTNode* type_annotation();
+    Expression* expression();
+    Term* term();
+    ASTNode* factor();
+    List* list();
+    ASTNode* lambda();
+    FunctionCall* function_call();
+    FunctionDef* function_def();
+    std::vector<ASTNode*> arglist();
+    std::vector<ASTNode*> typed_arglist();
     void parse_error(std::string err);
 private:
     std::vector<Token> tokens_;
@@ -100,12 +100,12 @@ void Parser::parse_error(std::string error) {
  * 
  *  program         = {statement} .
  */
-std::unique_ptr<ASTNode> Parser::parse_program() {
-    std::vector<std::unique_ptr<ASTNode>> statements;
+Program* Parser::parse_program() {
+    std::vector<ASTNode*> statements;
     while (type != TokenType::END_OF_FILE) {
         statements.push_back(statement());
     }
-    return std::make_unique<Program>(statements);
+    return new Program(statements);
 }
 
 /**
@@ -115,9 +115,9 @@ std::unique_ptr<ASTNode> Parser::parse_program() {
  *                  [function_call ";" ]
  *                  ["return" expression ";" ] .
  */
-std::unique_ptr<ASTNode> Parser::statement() {
+ASTNode* Parser::statement() {
 
-    std::unique_ptr<ASTNode> node;
+    ASTNode* node;
     if (type == TokenType::IDENTIFIER) {
         Token t = curr();
         switch (peekNext()) {
@@ -127,7 +127,7 @@ std::unique_ptr<ASTNode> Parser::statement() {
                 if (type != TokenType::SEMICOLON) { /* Inline type annotation */
                     // Assignment
                     expect(TokenType::ASSIGN);
-                    node = std::make_unique<Assignment>(t.lexeme, expression());
+                    node = new Assignment(t.lexeme, expression());
                 }
                 break;
             }
@@ -142,7 +142,7 @@ std::unique_ptr<ASTNode> Parser::statement() {
             }
             case TokenType::SEMICOLON: {
                 next();
-                node = std::make_unique<Identifier>(t.lexeme);
+                node = new Identifier(t.lexeme);
                 break;
             }
             case TokenType::END_OF_FILE: {
@@ -171,7 +171,7 @@ std::unique_ptr<ASTNode> Parser::statement() {
 }
 
 // type-annotation = type-ident { "->" type-annotation } | "[" type-annotation "]" .
-std::unique_ptr<ASTNode> Parser::type_annotation() {
+ASTNode* Parser::type_annotation() {
     if (type == TokenType::OPEN_BRACKET) { /* Parse list type */
         next();
         type_annotation();
@@ -188,18 +188,18 @@ std::unique_ptr<ASTNode> Parser::type_annotation() {
     }
 
     // TODO:
-    return std::unique_ptr<ASTNode>(nullptr);
+    return nullptr;
 }
 
 // assignment = ident [ ":" type-annotation ] "=" expression { "," ident "=" expression } .
-std::unique_ptr<ASTNode> Parser::assignment() {
+Assignment* Parser::assignment() {
     Token tok = expect(TokenType::IDENTIFIER);
     if (type == TokenType::COLON) { /* Optional type annotation */
         next();
         type_annotation();
     }
     expect(TokenType::ASSIGN);
-    std::unique_ptr<ASTNode> exp = expression();
+    ASTNode* exp = expression();
 
     // TODO: Handle multiple assignments on a line
     while (type == TokenType::COMMA) {
@@ -209,29 +209,29 @@ std::unique_ptr<ASTNode> Parser::assignment() {
         expression();
     }
 
-    return std::make_unique<Assignment>(tok.lexeme, std::move(exp));
+    return new Assignment(tok.lexeme, std::move(exp));
 }
 
 // function_call   = ident "(" arglist ")" .
-std::unique_ptr<ASTNode> Parser::function_call() {
+FunctionCall* Parser::function_call() {
     Token tok_name = expect(TokenType::IDENTIFIER);
     expect(TokenType::OPEN_PAREN);
-    std::vector<std::unique_ptr<ASTNode>> args = {};
+    std::vector<ASTNode*> args = {};
     if (peek() != TokenType::CLOSE_PAREN) { /* Non-empty arglist */
         args = arglist();
     }
     expect(TokenType::CLOSE_PAREN);
-    return std::make_unique<FunctionCall>(tok_name.lexeme, std::move(args));
+    return new FunctionCall(tok_name.lexeme, args);
 }
 
 
 // function_def    = "func" ident "(" typed-arglist ")" "{" {statement} "}" .
-std::unique_ptr<ASTNode> Parser::function_def() {
+FunctionDef* Parser::function_def() {
     expect(TokenType::KEYWORD_FUNC);
     Token tok_name = expect(TokenType::IDENTIFIER);
     expect(TokenType::OPEN_PAREN);
-    std::unique_ptr<FunctionDef> func = std::make_unique<FunctionDef>(tok_name.lexeme);
-    std::vector<std::unique_ptr<ASTNode>> args = {};
+    FunctionDef *func = new FunctionDef(tok_name.lexeme);
+    std::vector<ASTNode*> args = {};
     if (peek() != TokenType::CLOSE_PAREN) {
         args = typed_arglist();
     }
@@ -252,8 +252,8 @@ std::unique_ptr<ASTNode> Parser::function_def() {
     return func;
 }
 
-std::vector<std::unique_ptr<ASTNode>> Parser::arglist() {
-    std::vector<std::unique_ptr<ASTNode>> args; /* A list of expressions */
+std::vector<ASTNode*> Parser::arglist() {
+    std::vector<ASTNode*> args; /* A list of expressions */
     args.push_back(expression());
     while (type == TokenType::COMMA) {
         next();
@@ -264,8 +264,8 @@ std::vector<std::unique_ptr<ASTNode>> Parser::arglist() {
 }
 
 // typed_arglist         = [ expression { "," expression } ] .
-std::vector<std::unique_ptr<ASTNode>> Parser::typed_arglist() {
-    std::vector<std::unique_ptr<ASTNode>> args; /* A list of string identifiers */
+std::vector<ASTNode*> Parser::typed_arglist() {
+    std::vector<ASTNode*> args; /* A list of string identifiers */
     args.push_back(factor());
     if (type == TokenType::COLON) {
         next();
@@ -289,8 +289,8 @@ std::vector<std::unique_ptr<ASTNode>> Parser::typed_arglist() {
     return args;
 }
 
-std::unique_ptr<ASTNode> Parser::expression() {
-    std::unique_ptr<Expression> e = std::make_unique<Expression>(term());
+Expression* Parser::expression() {
+    Expression *e = new Expression(term());
     while (type == TokenType::OP_PLUS || type == TokenType::OP_MINUS) {
         char op = curr().lexeme[0]; 
         next();
@@ -299,8 +299,8 @@ std::unique_ptr<ASTNode> Parser::expression() {
     return e;
 }
 
-std::unique_ptr<ASTNode> Parser::term() {
-    std::unique_ptr<Term> t = std::make_unique<Term>(factor());
+Term* Parser::term() {
+    Term *t = new Term(factor());
     while (type == TokenType::OP_MULT || type == TokenType::OP_DIVIDE) {
         char op = curr().lexeme[0];
         next();
@@ -316,7 +316,7 @@ std::unique_ptr<ASTNode> Parser::term() {
 }
 
 // factor = ident | integer | string | list | lambda | function_call | "(" expression ")" .
-std::unique_ptr<ASTNode> Parser::factor() {
+ASTNode* Parser::factor() {
     Token t = curr();
     switch (type) {
         case TokenType::IDENTIFIER: /* Identifier or function call */
@@ -325,20 +325,20 @@ std::unique_ptr<ASTNode> Parser::factor() {
             }
             /* Identifier */
             next();
-            return std::make_unique<Identifier>(t.lexeme);
+            return new Identifier(t.lexeme);
         case TokenType::INTEGER:
             next();
-            return std::make_unique<Integer>(std::stoi(t.lexeme));
+            return new Integer(std::stoi(t.lexeme));
         case TokenType::STRING:
             next();
-            return std::make_unique<String>(t.lexeme);
+            return new String(t.lexeme);
         case TokenType::OPEN_BRACKET:
             return list(); 
         case TokenType::LAMBDA:
             return lambda(); 
         case TokenType::OPEN_PAREN: {
             next();
-            std::unique_ptr<ASTNode> t = expression();
+            ASTNode* t = expression();
             expect(TokenType::CLOSE_PAREN);
             return t;
         }
@@ -346,13 +346,13 @@ std::unique_ptr<ASTNode> Parser::factor() {
             parse_error("Bad factor");
     }
     std::cerr << "Returning nullptr\n";
-    return std::unique_ptr<ASTNode>(nullptr);
+    return nullptr;
 }
 
 // list = "[" [ expression { "," expression } ] "]" .
-std::unique_ptr<ASTNode> Parser::list() {
+List* Parser::list() {
     expect(TokenType::OPEN_BRACKET);
-    std::vector<std::unique_ptr<ASTNode>> elements;
+    std::vector<ASTNode*> elements;
 
     if (type != TokenType::CLOSE_BRACKET) { /* Empty lists */
         elements.push_back(expression());
@@ -362,16 +362,16 @@ std::unique_ptr<ASTNode> Parser::list() {
         }
     }
     expect(TokenType::CLOSE_BRACKET);
-    return std::make_unique<List>(elements);
+    return new List(elements);
 }
 
 // lambda = "\" ident "." expression .
-std::unique_ptr<ASTNode> Parser::lambda() {
+ASTNode* Parser::lambda() {
     expect(TokenType::LAMBDA);
     expect(TokenType::IDENTIFIER);
     expect(TokenType::PERIOD);
     expression();
 
     // TODO:
-    return std::unique_ptr<ASTNode>(nullptr);
+    return nullptr;
 }
