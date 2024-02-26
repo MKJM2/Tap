@@ -60,7 +60,7 @@ public:
 
   Identifier() = delete;
   Identifier(const char* s) : ASTNode(IDENTIFIER), name_(s) {}
-  Identifier(std::string s) : ASTNode(IDENTIFIER), name_(std::move(s)) {}
+  Identifier(std::string& s) : ASTNode(IDENTIFIER), name_(std::move(s)) {}
 
   // Name of the variable
   const std::string& name() const { return name_; }
@@ -148,7 +148,7 @@ public:
   FunctionDef(std::string& name) : ASTNode(FUNC_DEF), name_(std::move(name)) {}
   FunctionDef(std::string& name,
               std::vector<std::string>& args,
-              std::vector<std::unique_ptr<ASTNode>>& statements)
+              std::vector<ASTNode*>& statements)
       : ASTNode(FUNC_DEF)
       , name_(std::move(name))
       , args_(args) 
@@ -171,11 +171,11 @@ public:
   // Getters
   std::string name() const { return name_ ; }
   std::vector<std::string> args() const { return args_ ; }
-  const std::vector<std::unique_ptr<ASTNode>>& statements() const { return statements_; }
+  const std::vector<ASTNode*>& statements() const { return statements_; }
 
   // Setters
   void addArg(const std::string arg) { args_.push_back(arg); }
-  void addStatement(std::unique_ptr<ASTNode> statement) {
+  void addStatement(ASTNode *statement) {
       statements_.push_back(std::move(statement));
   }
 
@@ -193,14 +193,14 @@ protected:
 private:
     std::string name_;
     std::vector<std::string> args_;
-    std::vector<std::unique_ptr<ASTNode>> statements_;
+    std::vector<ASTNode*> statements_;
 };
 
 export
 class FunctionCall : public ASTNode {
 public:
   FunctionCall() = delete;
-  FunctionCall(std::string s, std::vector<std::unique_ptr<ASTNode>> args)
+  FunctionCall(std::string s, std::vector<ASTNode*> args)
     : ASTNode(FUNC_CALL)
     , name_(std::move(s))
     , args_(std::move(args)) {}
@@ -215,7 +215,7 @@ public:
 
   // Getters
   const std::string name() const { return name_ ; }
-  const std::vector<std::unique_ptr<ASTNode>>& args() const { return args_; }
+  const std::vector<ASTNode*>& args() const { return args_; }
 
 protected:
   virtual FunctionCall* clone_impl() const override {
@@ -224,14 +224,14 @@ protected:
 
 private:
     std::string name_;
-    std::vector<std::unique_ptr<ASTNode>> args_;
+    std::vector<ASTNode*> args_;
 };
 
 export
 class Factor : public ASTNode {
 public:
   Factor() = delete;
-  Factor(std::unique_ptr<ASTNode> node) : ASTNode(FACTOR), child_(std::move(node)) {
+  Factor(ASTNode *node) : ASTNode(FACTOR), child_(std::move(node)) {
      assert(node->type() == IDENTIFIER ||
             node->type() == INT ||
             node->type() == STRING ||
@@ -251,14 +251,14 @@ protected:
   }
 
 private:
-    std::unique_ptr<ASTNode> child_;
+    ASTNode *child_;
 };
 
 export
 class List : public ASTNode {
 public:
   List(); /* Empty list */
-  List(std::vector<std::unique_ptr<ASTNode>>& elements) 
+  List(std::vector<ASTNode*>& elements)
   : ASTNode(LIST)
   , elements_(std::move(elements)) {}
   List(List const& other) : ASTNode(LIST) {
@@ -280,7 +280,7 @@ public:
     assert(idx < elements_.size());
     return elements_[idx].get();
   }
-  const std::vector<std::unique_ptr<ASTNode>>& elements() const { return elements_; }
+  const std::vector<ASTNode*>& elements() const { return elements_; }
 
 protected:
   virtual List* clone_impl() const override {
@@ -288,7 +288,7 @@ protected:
   }
 
 private:
-    std::vector<std::unique_ptr<ASTNode>> elements_;
+    std::vector<ASTNode*> elements_;
 };
 
 
@@ -314,7 +314,7 @@ export
 class Term : public ASTNode {
 public:
     Term() : ASTNode(TERM) {}
-    Term (std::unique_ptr<ASTNode> factor) : ASTNode(TERM) {
+    Term (ASTNode* factor) : ASTNode(TERM) {
         arity_ = 1;
         factors_.push_back(std::move(factor));
     }
@@ -325,7 +325,7 @@ public:
     }
 
 
-    void addFactor(std::unique_ptr<ASTNode> factor, const char op = '\0') {
+    void addFactor(ASTNode *factor, const char op = '\0') {
         factors_.push_back(std::move(factor));
         operators_.push_back(op); 
         arity_++;  // we increment the arity for each added factor
@@ -335,7 +335,7 @@ public:
         return operators_;
     }
 
-    const std::vector<std::unique_ptr<ASTNode>>& factors() const {
+    const std::vector<ASTNode*>& factors() const {
         return factors_;
     }
 
@@ -347,7 +347,7 @@ protected:
         return new Term(*this);
     }
 private:
-    std::vector<std::unique_ptr<ASTNode>> factors_;
+    std::vector<ASTNode*> factors_;
     std::vector<char> operators_;  // Operators between factors
 };
 
@@ -357,7 +357,7 @@ class Expression : public ASTNode {
 public:
     Expression() : ASTNode(EXPRESSION) {}
 
-    Expression (std::unique_ptr<ASTNode> term) : ASTNode(EXPRESSION) {
+    Expression (ASTNode *term) : ASTNode(EXPRESSION) {
         arity_ = 1;
         terms_.push_back(std::move(term));
     }
@@ -370,14 +370,14 @@ public:
         }
     }
 
-    void addTerm(std::unique_ptr<ASTNode> term, const char op = '\0') {
+    void addTerm(ASTNode *term, const char op = '\0') {
         assert(term->type() == TERM);
         terms_.push_back(std::move(term));
         operators_.push_back(op);
         arity_++;  // we increment the arity for each added factor
     }
 
-    const std::vector<std::unique_ptr<ASTNode>>& terms() const {
+    const std::vector<ASTNode *>& terms() const {
         return terms_;
     }
 
@@ -393,7 +393,7 @@ protected:
         return new Expression(*this);
     }
 private:
-    std::vector<std::unique_ptr<ASTNode>> terms_;
+    std::vector<ASTNode* terms_;
     std::vector<char> operators_;  // Operators between factors
 };
 
@@ -402,7 +402,7 @@ export
 class Assignment : public ASTNode {
 public:
   Assignment() = delete;
-  Assignment(std::string s, std::unique_ptr<ASTNode> rhs) 
+  Assignment(std::string s, ASTNode *rhs)
   : ASTNode(ASSIGNMENT)
   , name_(std::move(s))
   , child_(std::move(rhs)) {
@@ -431,13 +431,13 @@ protected:
     }
 private:
     std::string name_;
-    std::unique_ptr<ASTNode> child_;
+    ASTNode *child_;
 };
 
 class Statement : public ASTNode {
 public:
     Statement() = delete;
-    Statement(std::unique_ptr<ASTNode> node) : ASTNode(STATEMENT), child_(std::move(node)) {
+    Statement(ASTNode *node) : ASTNode(STATEMENT), child_(std::move(node)) {
         assert(node);
         assert(node->type() == ASSIGNMENT ||
             node->type() == FUNC_CALL ||
@@ -447,7 +447,7 @@ public:
   // Getters
   const ASTNode *child() const { return child_.get() ; }
 private:
-    std::unique_ptr<ASTNode> child_;
+    ASTNode *child_;
 };
 
 
@@ -455,7 +455,7 @@ export
 class Program : public ASTNode {
 public:
     Program();
-    Program(std::vector<std::unique_ptr<ASTNode>>& statements) 
+    Program(std::vector<ASTNode*>& statements)
     : ASTNode(PROGRAM)
     , statements_(std::move(statements)) {}
 
@@ -471,7 +471,7 @@ public:
         return statements_[idx].get();
     }
 
-    const std::vector<std::unique_ptr<ASTNode>>& statements() const { return statements_; }
+    const std::vector<ASTNode*>& statements() const { return statements_; }
 
 protected:
     virtual Program* clone_impl() const override {
@@ -479,7 +479,7 @@ protected:
     }
 
 private:
-    std::vector<std::unique_ptr<ASTNode>> statements_;
+    std::vector<ASTNode*> statements_;
 };
 
 
