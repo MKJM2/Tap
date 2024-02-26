@@ -6,6 +6,7 @@ CMakeTmp/
 
 # Ninja build directory
 build/
+build/*
 
 # Compiled object files
 *.o
@@ -38,3 +39,7 @@ Thumbs.db
 CMakeUserPresets.json
 CMakeUserPresets.jsonc
 
+# CCLS
+.ccls-cache
+.cache
+.ninja

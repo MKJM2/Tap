@@ -32,11 +32,11 @@ static void processInput(const std::string& input) {
 		std::vector<Token> tokens = Lexer(input).tokenize();
 		// std::cout << "Lexer output:\n";
 		// printTokens(tokens);
-		std::unique_ptr<ASTNode> ast = Parser(tokens).parse_program();
+		ASTNode *ast = Parser(tokens).parse_program();
 		// std::cout << "Parser output:\n";
 		// printTree(ast.get());
 		// Value result = Interpreter(std::move(ast)).interpret();
-		interpreter.setRoot(std::move(ast));
+		interpreter.setRoot(ast);
 		Value result = interpreter.interpret();
 		// std::cout << "Interpreter output:\n";
 		printValue(result);

@@ -39,13 +39,10 @@ public:
     }
 
     virtual ~ASTNode() {};
-
-    auto clone() const { return std::unique_ptr<ASTNode>(clone_impl()); }
-protected: 
+protected:
     ASTNode() = delete;
     ASTNode(char8_t op) : type_(op), arity_(0) {}
     ASTNode(char8_t op, char8_t ar) : type_(op), arity_(ar) {}
-    virtual ASTNode* clone_impl() const = 0;
     char8_t arity_;
 private:
     const char8_t type_;
@@ -60,15 +57,10 @@ public:
 
   Identifier() = delete;
   Identifier(const char* s) : ASTNode(IDENTIFIER), name_(s) {}
-  Identifier(std::string s) : ASTNode(IDENTIFIER), name_(std::move(s)) {}
+  Identifier(std::string& s) : ASTNode(IDENTIFIER), name_(std::move(s)) {}
 
   // Name of the variable
   const std::string& name() const { return name_; }
-
-protected: 
-  virtual Identifier* clone_impl() const override {
-    return new Identifier(*this);
-  }
 
 private:
   std::string name_;
@@ -96,11 +88,6 @@ public:
       std::swap(first.value_, second.value_);
   }
 
-protected:
-    virtual Integer* clone_impl() const override {
-        return new Integer(*this);
-    }
-
 private:
   int value_;
 };
@@ -115,7 +102,7 @@ public:
 
   String() = delete;
   String(const char* s) : ASTNode(STRING), value_(s) {}
-  String(std::string s) : ASTNode(STRING), value_(std::move(s)) {}
+  String(std::string& s) : ASTNode(STRING), value_(std::move(s)) {}
 
   String& operator=(String other) {
     swap(*this, other);
@@ -128,10 +115,6 @@ public:
   // Name of the variable
   const std::string value() const { return value_ ; }
 
-protected:
-    virtual String* clone_impl() const override {
-        return new String(*this);
-    }
 private:
     std::string value_;
 };
@@ -148,7 +131,7 @@ public:
   FunctionDef(std::string& name) : ASTNode(FUNC_DEF), name_(std::move(name)) {}
   FunctionDef(std::string& name,
               std::vector<std::string>& args,
-              std::vector<std::unique_ptr<ASTNode>>& statements)
+              std::vector<ASTNode*>& statements)
       : ASTNode(FUNC_DEF)
       , name_(std::move(name))
       , args_(args) 
@@ -159,7 +142,7 @@ public:
   , name_(other.name_)
   , args_(other.args_) {
     for (auto& statement : other.statements_) {
-        statements_.push_back(statement->clone());
+        statements_.push_back(statement);
     }
   }
 
@@ -171,12 +154,12 @@ public:
   // Getters
   std::string name() const { return name_ ; }
   std::vector<std::string> args() const { return args_ ; }
-  const std::vector<std::unique_ptr<ASTNode>>& statements() const { return statements_; }
+  const std::vector<ASTNode*>& statements() const { return statements_; }
 
   // Setters
   void addArg(const std::string arg) { args_.push_back(arg); }
-  void addStatement(std::unique_ptr<ASTNode> statement) {
-      statements_.push_back(std::move(statement));
+  void addStatement(ASTNode *statement) {
+      statements_.push_back(statement);
   }
 
   friend void swap(FunctionDef& first, FunctionDef& second) noexcept {
@@ -186,21 +169,17 @@ public:
       swap(first.statements_, second.statements_);
   }
 
-protected:
-    virtual FunctionDef* clone_impl() const override { 
-        return new FunctionDef(*this); 
-    } 
 private:
     std::string name_;
     std::vector<std::string> args_;
-    std::vector<std::unique_ptr<ASTNode>> statements_;
+    std::vector<ASTNode*> statements_;
 };
 
 export
 class FunctionCall : public ASTNode {
 public:
   FunctionCall() = delete;
-  FunctionCall(std::string s, std::vector<std::unique_ptr<ASTNode>> args)
+  FunctionCall(std::string& s, std::vector<ASTNode*>& args)
     : ASTNode(FUNC_CALL)
     , name_(std::move(s))
     , args_(std::move(args)) {}
@@ -209,29 +188,24 @@ public:
   : ASTNode(FUNC_CALL)
   , name_(other.name_) {
     for (auto& arg : other.args_) {
-        args_.push_back(arg->clone());
+        args_.push_back(arg);
     }
   }
 
   // Getters
   const std::string name() const { return name_ ; }
-  const std::vector<std::unique_ptr<ASTNode>>& args() const { return args_; }
-
-protected:
-  virtual FunctionCall* clone_impl() const override {
-      return new FunctionCall(*this);
-  }
+  const std::vector<ASTNode*>& args() const { return args_; }
 
 private:
     std::string name_;
-    std::vector<std::unique_ptr<ASTNode>> args_;
+    std::vector<ASTNode*> args_;
 };
 
 export
 class Factor : public ASTNode {
 public:
   Factor() = delete;
-  Factor(std::unique_ptr<ASTNode> node) : ASTNode(FACTOR), child_(std::move(node)) {
+  Factor(ASTNode *node) : ASTNode(FACTOR), child_(node) {
      assert(node->type() == IDENTIFIER ||
             node->type() == INT ||
             node->type() == STRING ||
@@ -240,30 +214,25 @@ public:
             node->type() == FUNC_CALL ||
             node->type() == EXPRESSION);
   }
-  Factor(Factor const& other) : ASTNode(FACTOR), child_(other.child_->clone()) {}
+  Factor(Factor const& other) : ASTNode(FACTOR), child_(other.child_) {}
 
   // Getters
-  const ASTNode *child() const { return child_.get() ; }
-
-protected:
-  virtual Factor* clone_impl() const override {
-      return new Factor(*this);
-  }
+  const ASTNode *child() const { return child_ ; }
 
 private:
-    std::unique_ptr<ASTNode> child_;
+    ASTNode *child_;
 };
 
 export
 class List : public ASTNode {
 public:
   List(); /* Empty list */
-  List(std::vector<std::unique_ptr<ASTNode>>& elements) 
+  List(std::vector<ASTNode*>& elements)
   : ASTNode(LIST)
   , elements_(std::move(elements)) {}
   List(List const& other) : ASTNode(LIST) {
     for (auto& el : other.elements_) {
-        elements_.push_back(el->clone());
+        elements_.push_back(el);
     }
   }
 
@@ -278,55 +247,32 @@ public:
   // Getters
   const ASTNode* child(int idx) const {
     assert(idx < elements_.size());
-    return elements_[idx].get();
+    return elements_[idx];
   }
-  const std::vector<std::unique_ptr<ASTNode>>& elements() const { return elements_; }
-
-protected:
-  virtual List* clone_impl() const override {
-      return new List(*this);
-  }
+  const std::vector<ASTNode*>& elements() const { return elements_; }
 
 private:
-    std::vector<std::unique_ptr<ASTNode>> elements_;
+    std::vector<ASTNode*> elements_;
 };
 
-
-/*
-template <unsigned arr>
-class Term : public ASTNode {
-public:
-    Term() : ASTNode(TERM), op_('\0') {} // No factors initially, zero arity
-    Term(const ASTNode* f) : ASTNode(TERM, 1), op_('\0') { factors_[0] = f; }
-    Term(const Factor& f1, const char op, const Factor& f2) : ASTNode(TERM, 2) {
-        op_ = op;
-        factors_[0] = f1;
-        factors_[1] = f2;
-    }
-
-private:
-    char8_t op_;
-    ASTNode* factors_[ar];
-};
-*/
 
 export
 class Term : public ASTNode {
 public:
     Term() : ASTNode(TERM) {}
-    Term (std::unique_ptr<ASTNode> factor) : ASTNode(TERM) {
+    Term (ASTNode* factor) : ASTNode(TERM) {
         arity_ = 1;
-        factors_.push_back(std::move(factor));
+        factors_.push_back(factor);
     }
     Term(Term const& other) : ASTNode(TERM), operators_(other.operators_) {
         for (auto& factor : other.factors_) {
-            factors_.push_back(factor->clone());
+            factors_.push_back(factor);
         }
     }
 
 
-    void addFactor(std::unique_ptr<ASTNode> factor, const char op = '\0') {
-        factors_.push_back(std::move(factor));
+    void addFactor(ASTNode *factor, const char op = '\0') {
+        factors_.push_back(factor);
         operators_.push_back(op); 
         arity_++;  // we increment the arity for each added factor
     }
@@ -335,19 +281,15 @@ public:
         return operators_;
     }
 
-    const std::vector<std::unique_ptr<ASTNode>>& factors() const {
+    const std::vector<ASTNode*>& factors() const {
         return factors_;
     }
 
     const size_t size() const {
         return factors_.size();
     }
-protected: 
-    virtual Term* clone_impl() const override {
-        return new Term(*this);
-    }
 private:
-    std::vector<std::unique_ptr<ASTNode>> factors_;
+    std::vector<ASTNode*> factors_;
     std::vector<char> operators_;  // Operators between factors
 };
 
@@ -357,27 +299,27 @@ class Expression : public ASTNode {
 public:
     Expression() : ASTNode(EXPRESSION) {}
 
-    Expression (std::unique_ptr<ASTNode> term) : ASTNode(EXPRESSION) {
+    Expression (ASTNode *term) : ASTNode(EXPRESSION) {
         arity_ = 1;
-        terms_.push_back(std::move(term));
+        terms_.push_back(term);
     }
 
     Expression(Expression const& other) 
     : ASTNode(EXPRESSION)
     , operators_(other.operators_) {
         for (auto& term : other.terms_) {
-            terms_.push_back(term->clone());
+            terms_.push_back(term);
         }
     }
 
-    void addTerm(std::unique_ptr<ASTNode> term, const char op = '\0') {
+    void addTerm(ASTNode *term, const char op = '\0') {
         assert(term->type() == TERM);
-        terms_.push_back(std::move(term));
+        terms_.push_back(term);
         operators_.push_back(op);
         arity_++;  // we increment the arity for each added factor
     }
 
-    const std::vector<std::unique_ptr<ASTNode>>& terms() const {
+    const std::vector<ASTNode *>& terms() const {
         return terms_;
     }
 
@@ -388,12 +330,8 @@ public:
     const size_t size() const {
         return terms_.size();
     }
-protected: 
-    virtual Expression* clone_impl() const override {
-        return new Expression(*this);
-    }
 private:
-    std::vector<std::unique_ptr<ASTNode>> terms_;
+    std::vector<ASTNode*> terms_;
     std::vector<char> operators_;  // Operators between factors
 };
 
@@ -402,10 +340,10 @@ export
 class Assignment : public ASTNode {
 public:
   Assignment() = delete;
-  Assignment(std::string s, std::unique_ptr<ASTNode> rhs) 
+  Assignment(std::string& s, ASTNode *rhs)
   : ASTNode(ASSIGNMENT)
   , name_(std::move(s))
-  , child_(std::move(rhs)) {
+  , child_(rhs) {
      assert(child_);
      assert(child_->type() == IDENTIFIER ||
             child_->type() == INT ||
@@ -418,26 +356,23 @@ public:
   Assignment(Assignment const& other) 
   : ASTNode(ASSIGNMENT)
   , name_(other.name_) {
-    child_ = other.child_->clone();
+    child_ = other.child_;
   }
 
   // Getters
   const std::string& name() const { return name_ ; }
-  const ASTNode *child() const  { return child_.get() ; }
+  const ASTNode *child() const  { return child_ ; }
 
-protected:
-    virtual Assignment* clone_impl() const override {
-        return new Assignment(*this);
-    }
 private:
     std::string name_;
-    std::unique_ptr<ASTNode> child_;
+    ASTNode *child_;
 };
 
+export
 class Statement : public ASTNode {
 public:
     Statement() = delete;
-    Statement(std::unique_ptr<ASTNode> node) : ASTNode(STATEMENT), child_(std::move(node)) {
+    Statement(ASTNode *node) : ASTNode(STATEMENT), child_(node) {
         assert(node);
         assert(node->type() == ASSIGNMENT ||
             node->type() == FUNC_CALL ||
@@ -445,9 +380,9 @@ public:
   }
 
   // Getters
-  const ASTNode *child() const { return child_.get() ; }
+  const ASTNode *child() const { return child_ ; }
 private:
-    std::unique_ptr<ASTNode> child_;
+    ASTNode *child_;
 };
 
 
@@ -455,31 +390,26 @@ export
 class Program : public ASTNode {
 public:
     Program();
-    Program(std::vector<std::unique_ptr<ASTNode>>& statements) 
+    Program(std::vector<ASTNode*>& statements)
     : ASTNode(PROGRAM)
     , statements_(std::move(statements)) {}
 
     Program(Program const& other) : ASTNode(PROGRAM) {
         for (auto& statement : other.statements_) {
-            statements_.push_back(statement->clone());
+            statements_.push_back(statement);
         }
     }
 
     // Getters
     ASTNode* child(int idx) const {
         assert(idx < statements_.size());
-        return statements_[idx].get();
+        return statements_[idx];
     }
 
-    const std::vector<std::unique_ptr<ASTNode>>& statements() const { return statements_; }
-
-protected:
-    virtual Program* clone_impl() const override {
-        return new Program(*this);
-    }
+    const std::vector<ASTNode*>& statements() const { return statements_; }
 
 private:
-    std::vector<std::unique_ptr<ASTNode>> statements_;
+    std::vector<ASTNode*> statements_;
 };
 
 
@@ -503,7 +433,7 @@ void printTree(const ASTNode* node) {
             }
             for (auto& statement : static_cast<const FunctionDef*>(node)->statements()) {
                 std::cout << "STATEMENT: \n";
-                printTree(statement.get());
+                printTree(statement);
                 std::cout << "\n";
             }
             break;
@@ -511,7 +441,7 @@ void printTree(const ASTNode* node) {
             std::cout << "FUNC_CALL: " << static_cast<const FunctionCall*>(node)->name() << "\n";
             for (auto& arg : static_cast<const FunctionCall*>(node)->args()) {
                 std::cout << "ARG: \n";
-                printTree(arg.get());
+                printTree(arg);
                 std::cout << "\n";
             }
             break;
@@ -522,7 +452,7 @@ void printTree(const ASTNode* node) {
             std::cout << "LIST [\n";
             for (auto& element : static_cast<const List*>(node)->elements()) {
                 std::cout << "ELEMENT: "; 
-                printTree(element.get());
+                printTree(element);
                 std::cout << "\n";
             }
             std::cout << "]\n";
@@ -536,7 +466,7 @@ void printTree(const ASTNode* node) {
             const Term* term = static_cast<const Term*>(node);
             int n = term->factors().size();
             for (int i = 0; i < n; ++i) {
-                printTree(term->factors()[i].get());
+                printTree(term->factors()[i]);
                 if (i < n - 1) {
                     std::cout << term->operators()[i];
                 }
@@ -555,7 +485,7 @@ void printTree(const ASTNode* node) {
             const Expression* exp = static_cast<const Expression*>(node);
             int n = exp->terms().size();
             for (int i = 0; i < n; ++i) {
-                printTree(exp->terms()[i].get());
+                printTree(exp->terms()[i]);
                 if (i < n - 1) {
                     std::cout << exp->operators()[i];
                 }
@@ -570,7 +500,7 @@ void printTree(const ASTNode* node) {
         case ASTNode::NodeType::PROGRAM:
             std::cout << "PROGRAM\n";
             for (auto& statement : static_cast<const Program*>(node)->statements()) {
-                printTree(statement.get());
+                printTree(statement);
                 std::cout << "\n";
             }
             std::cout << "END OF PROGRAM\n";
