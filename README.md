@@ -12,35 +12,109 @@ As such, I implement my own lexer, parser, and interpreter
 Disclaimer: Tap is in its infancy and many of the features are still not implemented.
 
 ### Grammar (EBNF)
-```
+```ebnf
 program         = {statement} .
-statement       = [assignment ";"]
-                  [ident ":" type-annotation ";"]
-                  [expression ";" ] 
-                  ["return" expression ";" ] .
-assignment      = ident [ ":" type-annotation ] "=" expression { "," ident "=" expression } .
-type-annotation = type-ident { "->" type-annotation } | "[" type-annotation "]" .
+
+statement       = assignment ";"
+                | var_decl ";"
+                | expression ";"
+                | return_stmt
+                | function_def
+                | struct_decl
+                | enum_decl
+                | if_stmt
+                | match_stmt
+                | while_loop
+                | for_loop .
+
+var_decl        = ident ":" type-annotation .
+assignment      = ident [ ":" type-annotation ] "=" expression .
+return_stmt     = "return" expression ";" .
+
+struct_decl     = ident ":" struct_type ";" .
+enum_decl       = ident ":" enum_type ";" .
+
+if_stmt         = "if" expression block [ "else" block ] . 
+block           = "{" {statement} "}" .
+
+match_stmt      = "match" expression "{" match_arm { match_arm } "}" .
+match_arm       = pattern "=>" expression ";" .
+pattern         = ident
+                | literal
+                | list_pattern
+                | struct_pattern
+                | variant_pattern .
+
+list_pattern    = "[" [ pattern { "," pattern } ] "]" .
+struct_pattern  = "struct" "{" field_pattern { "," field_pattern } "}" .
+field_pattern   = ident ":" pattern .
+variant_pattern = ident "(" pattern { "," pattern } ")" .
+
+while_loop      = "while" expression block . 
+for_loop        = "for" ident "in" expression block . 
+
 expression      = term { ("+" | "-") term } .
 term            = factor { ("*" | "/") factor } .
-factor          = ident | integer | string | list | lambda | function_call | "(" expression ")" .
+factor          = literal
+                | ident
+                | list
+                | lambda
+                | function_call
+                | "(" expression ")" .
+
+literal         = integer | float | string | "true" | "false" . 
+
 list            = "[" [ expression { "," expression } ] "]" .
-lambda          = "\" ident "." expression .
+lambda          = "\"" ident { ident } "." expression . 
 function_call   = ident "(" arglist ")" .
-function_def    = "func" ident "(" typed-arglist ")" "{" {statement} "}" .
+
+function_def    = "func" ident "(" typed-arglist ")" [ ":" type-annotation ] "{" {statement} "}" .
+
 arglist         = [ expression { "," expression } ] .
-typed-arglist   = [ ident [ ":" type-annotation ] { "," ident [ ":" type-annotation ] } ] .
-ident           = letter { letter | digit } .
-type-ident      = "int" | "str" | "float" .
-integer         = digit {digit} .
-string          = '"' { character } '"' .
-character       = UTF8 \ '"' .
-letter          = ['a'-'z'] | ['A' - 'Z' ] .
+typed-arglist   = [ typed_param { "," typed_param } ] .
+typed_param     = ident [ ":" type-annotation ] .
+
+type-annotation = function_type
+                | array_type
+                | struct_type
+                | enum_type
+                | type-ident
+                | "(" type-annotation ")" .
+
+function_type   = type-ident "->" type-annotation . 
+array_type      = "[" type-annotation "]" .
+struct_type     = "struct" "{" field { "," field } "}" .
+enum_type       = "enum" "{" variant { "," variant } "}" .
+field           = ident ":" type-annotation . 
+variant         = ident [ "(" type-annotation { "," type-annotation } ")" ] .
+
+type-ident      = primitive_type | ident . 
+primitive_type  = "int" | "str" | "float" | "bool" | "unit" . 
+
+ident           = letter { letter | digit | "_" } . 
+letter          = "a"..."z" | "A"..."Z" . 
+digit           = "0"..."9" . 
+
+integer         = digit {digit} . 
+float           = digit {digit} "." digit {digit} [ exponent ] . 
+exponent        = ("e" | "E") ["+" | "-"] digit {digit} . 
+
+string          = '"' { char } '"' . 
+char            = ? any character except ", \, and newline ? | escape_seq . 
+escape_seq      = "\" ( '"' | '\\' | "n" | "t" | "r" ) . 
+
+comment         = "#" { ? any character except newline ? } "\n" . 
+whitespace      = " " | "\t" | "\n" | "\r" . 
 ```
+
+### Lexer Precedence
+- Keywords (func, return, struct, etc.) > Identifiers
+- Reserved words cannot be redefined
 
 ### Syntax examples
 ```
 # Variable assignment
-x = 5;   
+x = 5;
 
 # Optional type annotations
 y : int;
@@ -56,27 +130,11 @@ f : int -> int = \x. x + 5;
 
 # Recursive functions
 func fib(n: int) : int {
-    return fib(n - 1) + fib(n - 2);   
+    if n < 2 {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
 }
-
-# Implicit return statements
-add : int -> int -> int;
-func add(x, y) {
-    x + y;   
-}
-
-func sub(x: int, y: int) : int {
-    x - y;
-}
-
-# Functions are first class citizens
-add2 = \x. add(2, x);
-
-func custom_inc(x: int) : int -> int -> int {
-    \y. add(x, y);
-}
-
-### TODOs
 
 # Structs
 car : struct {
@@ -85,17 +143,34 @@ car : struct {
     year_produced : int
 };
 
-# Matching
-
 # Enums
+opt : enum { Some(int), None };
+color : enum { Red, Green, Blue };
 
-# For loops
-
-# While loops
+# Match statements
+match opt {
+    Some(x) => x + 1,
+    None => 0
+};
 
 # If statements
+if x > 0 {
+    x = x - 1;
+} else {
+    x = 0;
+}
 
+# While loops
+while x > 0 {
+    x = x - 1;
+}
+
+# For loops
+for i in [1, 2, 3] {
+    # do something
+}
 ```
+
 ### Dependencies
 - CMake
 - Ninja
