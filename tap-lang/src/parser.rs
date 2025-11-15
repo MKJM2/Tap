@@ -342,6 +342,21 @@ impl<'a> Parser<'a> {
                 }
                 TokenType::OpenBracket => self.parse_list_literal()?,
                 TokenType::Lambda => self.parse_lambda_expression()?,
+                TokenType::KeywordIf => {
+                    self.advance();
+                    let condition = self.parse_expression()?;
+                    let then_branch = self.parse_block()?;
+                    let else_branch = if self.match_token(&TokenType::KeywordElse) {
+                        Some(self.parse_block()?)
+                    } else {
+                        None
+                    };
+                    Expression::If {
+                        condition: Box::new(condition),
+                        then_branch,
+                        else_branch,
+                    }
+                }
                 _ => {
                     return Err(ParseError::UnexpectedToken {
                         expected: "expression".to_string(),
@@ -489,6 +504,7 @@ impl<'a> Parser<'a> {
             return Ok(self.peek().unwrap_or(&self.tokens[self.tokens.len() - 1]));
         }
 
+        eprintln!("Received tokens {:?}", self.tokens);
         Err(ParseError::UnexpectedToken {
             expected: format!("{:?}", token_type),
             found: format!("{:?}", self.peek().unwrap().token_type),
@@ -549,7 +565,7 @@ impl<'a> Parser<'a> {
         };
 
         Ok(Statement::If {
-            condition,
+            condition: Box::new(condition),
             then_branch,
             else_branch,
         })

@@ -43,7 +43,7 @@ pub enum Statement {
     StructDecl(StructDecl),
     EnumDecl(EnumDecl),
     If {
-        condition: Expression,
+        condition: Box<Expression>,
         then_branch: Vec<Statement>,
         else_branch: Option<Vec<Statement>>,
     },
@@ -103,6 +103,11 @@ pub enum Expression {
     },
     Path {
         parts: Vec<String>,
+    },
+    If {
+        condition: Box<Expression>,
+        then_branch: Vec<Statement>,
+        else_branch: Option<Vec<Statement>>,
     },
     // TODO:
     // Unary,

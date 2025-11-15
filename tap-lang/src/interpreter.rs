@@ -45,6 +45,7 @@ pub enum Value {
     Enum(Enum),
     EnumVariant(EnumVariant),
     Boolean(bool),
+    List(Vec<Value>),
     Null,
 }
 
@@ -60,6 +61,10 @@ impl fmt::Display for Value {
             Value::Enum(e) => write!(f, "<enum {}>", e.name),
             Value::EnumVariant(v) => write!(f, "{}::{}", v.enum_name, v.variant_name),
             Value::Boolean(b) => write!(f, "{} : bool", b),
+            Value::List(els) => {
+                let elements: Vec<String> = els.iter().map(|e| format!("{}", e)).collect();
+                write!(f, "[{}]", elements.join(", "))
+            }
             Value::Null => write!(f, "null"),
         }
     }
@@ -182,7 +187,7 @@ impl Interpreter {
     fn evaluate_expression(
         &self,
         expr: &Expression,
-        env: &Environment,
+        env: &mut Environment,
     ) -> Result<Value, RuntimeError> {
         match expr {
             Expression::Literal(literal) => Ok(self.evaluate_literal(literal)),
@@ -238,7 +243,7 @@ impl Interpreter {
                             lambda_env.set(param.clone(), arg_val);
                         }
 
-                        self.evaluate_expression(&lambda.body, &lambda_env)
+                        self.evaluate_expression(&lambda.body, &mut lambda_env)
                     }
                     _ => Err(RuntimeError::TypeError(format!(
                         "{:?} is not a function",
@@ -315,7 +320,48 @@ impl Interpreter {
                     ))
                 }
             }
-            _ => unimplemented!(),
+            Expression::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                let condition_val = self.evaluate_expression(condition, env)?;
+                if let Value::Boolean(b) = condition_val {
+                    if b {
+                        let mut result = Value::Null;
+                        for statement in then_branch {
+                            if let Some(returned_value) = self.evaluate_statement(statement, env)? {
+                                result = returned_value;
+                                break; // Exit loop on first return
+                            }
+                        }
+                        Ok(result)
+                    } else if let Some(else_branch) = else_branch {
+                        let mut result = Value::Null;
+                        for statement in else_branch {
+                            if let Some(returned_value) = self.evaluate_statement(statement, env)? {
+                                result = returned_value;
+                                break; // Exit loop on first return
+                            }
+                        }
+                        Ok(result)
+                    } else {
+                        Ok(Value::Null)
+                    }
+                } else {
+                    Err(RuntimeError::TypeError(
+                        "If condition must evaluate to a boolean".to_string(),
+                    ))
+                }
+            }
+            Expression::List(elements) => {
+                let mut evaluated_elements = Vec::new();
+                for element in elements {
+                    let value = self.evaluate_expression(element, env)?;
+                    evaluated_elements.push(value);
+                }
+                Ok(Value::List(evaluated_elements))
+            }
         }
     }
 
