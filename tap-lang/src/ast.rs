@@ -17,6 +17,13 @@ pub enum TypeAnnotation {
         to: Box<TypeAnnotation>,
     },
     Array(Box<TypeAnnotation>),
+    Struct {
+        name: String,
+        fields: Vec<(String, TypeAnnotation)>,
+    },
+    Enum {
+        name: String,
+    },
     // TODO: Add other types
 }
 
@@ -35,8 +42,12 @@ pub enum Statement {
     FunctionDef(FunctionDef),
     StructDecl(StructDecl),
     EnumDecl(EnumDecl),
-    // TODO:
-    // Return(Expression),
+    If {
+        condition: Expression,
+        then_branch: Vec<Statement>,
+        else_branch: Option<Vec<Statement>>,
+    },
+    Return(Expression),
     // ...
 }
 
@@ -53,8 +64,6 @@ pub struct EnumDecl {
     pub name: String,
     pub variants: Vec<String>,
 }
-
-
 
 /// Represents a function definition.
 #[derive(Debug, Clone, PartialEq)]
@@ -92,6 +101,9 @@ pub enum Expression {
         object: Box<Expression>,
         name: String,
     },
+    Path {
+        parts: Vec<String>,
+    },
     // TODO:
     // Unary,
     // Grouping,
@@ -102,6 +114,7 @@ pub enum Expression {
 pub enum LiteralValue {
     Integer(i64),
     String(String),
+    Boolean(bool),
     // TODO:
     // Float(f64),
     // Bool(bool),
@@ -115,6 +128,12 @@ pub enum Operator {
     Subtract,
     Multiply,
     Divide,
+    Equal,
+    NotEqual,
+    GreaterThan,
+    GreaterThanEqual,
+    LessThan,
+    LessThanEqual,
     // TODO:
     // Modulo,
     // ...
@@ -129,6 +148,7 @@ impl fmt::Display for LiteralValue {
         match self {
             LiteralValue::Integer(i) => write!(f, "{} : int", i),
             LiteralValue::String(s) => write!(f, "\"{}\" : string", s),
+            LiteralValue::Boolean(b) => write!(f, "{} : bool", b),
         }
     }
 }

@@ -18,6 +18,7 @@ pub enum TokenType {
     AndAssign,
     NegAssign,
     Colon,
+    ColonColon,
     OpPlus,
     OpMinus,
     OpMult,
@@ -37,6 +38,10 @@ pub enum TokenType {
     Arrow,
     Equal,
     NotEqual,
+    GreaterThan,
+    GreaterThanEqual,
+    LessThan,
+    LessThanEqual,
     OpenParen,
     CloseParen,
     OpenBrace,
@@ -55,6 +60,8 @@ pub enum TokenType {
     KeywordEnum,
     KeywordFor,
     KeywordWhile,
+    KeywordIf,
+    KeywordElse,
     KeywordTrue,
     KeywordFalse,
     Unknown,
@@ -126,7 +133,13 @@ impl<'a> Lexer<'a> {
         let c = self.advance();
         match c {
             ';' => self.add_token(TokenType::Semicolon),
-            ':' => self.add_token(TokenType::Colon),
+            ':' => {
+                if self.match_char(':') {
+                    self.add_token(TokenType::ColonColon)
+                } else {
+                    self.add_token(TokenType::Colon)
+                }
+            }
             '(' => self.add_token(TokenType::OpenParen),
             ')' => self.add_token(TokenType::CloseParen),
             '{' => self.add_token(TokenType::OpenBrace),
@@ -227,6 +240,20 @@ impl<'a> Lexer<'a> {
                     self.add_token(TokenType::OpLneg)
                 }
             }
+            '>' => {
+                if self.match_char('=') {
+                    self.add_token(TokenType::GreaterThanEqual)
+                } else {
+                    self.add_token(TokenType::GreaterThan)
+                }
+            }
+            '<' => {
+                if self.match_char('=') {
+                    self.add_token(TokenType::LessThanEqual)
+                } else {
+                    self.add_token(TokenType::LessThan)
+                }
+            }
             '#' => {
                 while self.peek() != '\n' && !self.is_at_end() {
                     self.advance();
@@ -315,6 +342,8 @@ impl<'a> Lexer<'a> {
             "enum" => TokenType::KeywordEnum,
             "for" => TokenType::KeywordFor,
             "while" => TokenType::KeywordWhile,
+            "if" => TokenType::KeywordIf,
+            "else" => TokenType::KeywordElse,
             "true" => TokenType::KeywordTrue,
             "false" => TokenType::KeywordFalse,
             _ => TokenType::Identifier,

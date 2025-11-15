@@ -84,10 +84,13 @@ fn run_with_interpreter(source: &str, interpreter: &Interpreter, env: &mut Envir
     };
 
     match interpreter.interpret(&program, env) {
-        Ok(value) => {
+        Ok(Some(value)) => {
             if value != Value::Null {
                 println!("{}", value);
             }
+        }
+        Ok(None) => {
+            // Do nothing if no value is returned (e.g., a statement that doesn't produce a value)
         }
         Err(err) => {
             eprintln!("Runtime Error: {:?}", err);

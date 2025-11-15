@@ -1,10 +1,12 @@
-use tap_lang::ast::{EnumDecl, Expression, LiteralValue, Operator, Statement, StructDecl, TypeAnnotation};
+use tap_lang::ast::{
+    EnumDecl, Expression, LiteralValue, Operator, Statement, StructDecl, TypeAnnotation,
+};
 use tap_lang::lexer::Lexer;
 use tap_lang::parser::Parser;
 
 #[test]
 fn test_parse_lambda_expression() {
-    let source = "|x| x + 1;";
+    let source = "\\x. x + 1;";
     let tokens = Lexer::new(source).tokenize().unwrap();
     let mut parser = Parser::new(&tokens);
     let program = parser.parse_program().unwrap();
@@ -30,7 +32,7 @@ fn test_parse_lambda_expression() {
 
 #[test]
 fn test_parse_struct_declaration() {
-    let source = "struct Point { x: int, y: int }";
+    let source = "Point : struct { x: int, y: int };";
     let tokens = Lexer::new(source).tokenize().unwrap();
     let mut parser = Parser::new(&tokens);
     let program = parser.parse_program().unwrap();
@@ -51,7 +53,7 @@ fn test_parse_struct_declaration() {
 
 #[test]
 fn test_parse_enum_declaration() {
-    let source = "enum Color { Red, Green, Blue }";
+    let source = "Color : enum { Red, Green, Blue };";
     let tokens = Lexer::new(source).tokenize().unwrap();
     let mut parser = Parser::new(&tokens);
     let program = parser.parse_program().unwrap();

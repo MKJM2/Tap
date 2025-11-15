@@ -1,4 +1,4 @@
-use crate::ast::{Expression, FunctionDef, LiteralValue, Operator, Program, Statement, StructDecl};
+use crate::ast::{Expression, FunctionDef, LiteralValue, Operator, Program, Statement};
 use crate::environment::Environment;
 use std::collections::HashMap;
 use std::fmt;
@@ -21,6 +21,18 @@ pub struct StructInstance {
     pub fields: HashMap<String, Value>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Enum {
+    pub name: String,
+    pub variants: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumVariant {
+    pub enum_name: String,
+    pub variant_name: String,
+}
+
 /// Represents a runtime value in the language.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -30,6 +42,9 @@ pub enum Value {
     Lambda(Lambda),
     Struct(Struct),
     StructInstance(StructInstance),
+    Enum(Enum),
+    EnumVariant(EnumVariant),
+    Boolean(bool),
     Null,
 }
 
@@ -42,6 +57,9 @@ impl fmt::Display for Value {
             Value::Lambda(_) => write!(f, "<lambda>"),
             Value::Struct(s) => write!(f, "<struct {}>", s.name),
             Value::StructInstance(s) => write!(f, "<instance of {}>", s.name),
+            Value::Enum(e) => write!(f, "<enum {}>", e.name),
+            Value::EnumVariant(v) => write!(f, "{}::{}", v.enum_name, v.variant_name),
+            Value::Boolean(b) => write!(f, "{} : bool", b),
             Value::Null => write!(f, "null"),
         }
     }
@@ -68,44 +86,95 @@ impl Interpreter {
         &self,
         program: &Program,
         env: &mut Environment,
-    ) -> Result<Value, RuntimeError> {
-        let mut result = Value::Null;
+    ) -> Result<Option<Value>, RuntimeError> {
+        let mut last_evaluated_value: Option<Value> = None;
         for statement in &program.statements {
-            result = self.evaluate_statement(statement, env)?;
+            println!("Interpreting statement: {:?}", statement);
+            let statement_result = self.evaluate_statement(statement, env)?;
+            if statement_result.is_some() {
+                println!("Explicit return: {:?}", statement_result);
+                return Ok(statement_result); // Propagate explicit return
+            }
+            // If the statement was an expression, capture its value
+            if let Statement::Expression(expr) = statement {
+                last_evaluated_value = Some(self.evaluate_expression(expr, env)?);
+                println!(
+                    "Last evaluated expression value: {:?}",
+                    last_evaluated_value
+                );
+            }
         }
-        Ok(result)
+        println!("Final last_evaluated_value: {:?}", last_evaluated_value);
+        Ok(last_evaluated_value) // Return the last evaluated expression, or None if no expressions
     }
 
     fn evaluate_statement(
         &self,
         statement: &Statement,
         env: &mut Environment,
-    ) -> Result<Value, RuntimeError> {
+    ) -> Result<Option<Value>, RuntimeError> {
         match statement {
-            Statement::Expression(expr) => self.evaluate_expression(expr, env),
+            Statement::Expression(expr) => {
+                let value = self.evaluate_expression(expr, env)?;
+                Ok(Some(value))
+            }
             Statement::Assignment { name, value } => {
                 let value = self.evaluate_expression(value, env)?;
                 env.set(name.clone(), value.clone());
-                Ok(value)
+                Ok(None)
             }
             Statement::VarDecl { name, .. } => {
                 env.set(name.clone(), Value::Null);
-                Ok(Value::Null)
+                Ok(None)
             }
             Statement::FunctionDef(def) => {
                 env.set(def.name.clone(), Value::Function(def.clone()));
-                Ok(Value::Null)
+                Ok(None)
             }
             Statement::StructDecl(decl) => {
                 let name = decl.name.clone();
                 let fields = decl.fields.iter().map(|(name, _)| name.clone()).collect();
                 let struct_val = Value::Struct(Struct { name, fields });
                 env.set(decl.name.clone(), struct_val);
-                Ok(Value::Null)
+                Ok(None)
             }
-            Statement::EnumDecl(_) => {
-                // TODO: Implement enum declaration
-                Ok(Value::Null)
+            Statement::EnumDecl(decl) => {
+                let name = decl.name.clone();
+                let variants = decl.variants.clone();
+                let enum_val = Value::Enum(Enum { name, variants });
+                env.set(decl.name.clone(), enum_val);
+                Ok(None)
+            }
+            Statement::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                let condition_val = self.evaluate_expression(condition, env)?;
+                if let Value::Boolean(b) = condition_val {
+                    if b {
+                        for statement in then_branch {
+                            if let Some(returned_value) = self.evaluate_statement(statement, env)? {
+                                return Ok(Some(returned_value));
+                            }
+                        }
+                    } else if let Some(else_branch) = else_branch {
+                        for statement in else_branch {
+                            if let Some(returned_value) = self.evaluate_statement(statement, env)? {
+                                return Ok(Some(returned_value));
+                            }
+                        }
+                    }
+                    Ok(None)
+                } else {
+                    Err(RuntimeError::TypeError(
+                        "If condition must evaluate to a boolean".to_string(),
+                    ))
+                }
+            }
+            Statement::Return(expr) => {
+                let value = self.evaluate_expression(expr, env)?;
+                Ok(Some(value))
             }
         }
     }
@@ -146,7 +215,12 @@ impl Interpreter {
 
                         let mut result = Value::Null;
                         for statement in &def.body {
-                            result = self.evaluate_statement(statement, &mut func_env)?;
+                            if let Some(returned_value) =
+                                self.evaluate_statement(statement, &mut func_env)?
+                            {
+                                result = returned_value;
+                                break; // Exit loop on first return
+                            }
                         }
                         Ok(result)
                     }
@@ -177,11 +251,12 @@ impl Interpreter {
                 body: body.clone(),
             })),
             Expression::StructInstantiation { name, fields } => {
-                let struct_val = env.get(name).cloned().ok_or_else(|| {
-                    RuntimeError::TypeError(format!("{} is not a struct", name))
-                })?;
+                let struct_val = env
+                    .get(name)
+                    .cloned()
+                    .ok_or_else(|| RuntimeError::TypeError(format!("{} is not a struct", name)))?;
 
-                if let Value::Struct(struct_def) = struct_val {
+                if let Value::Struct(_struct_def) = struct_val {
                     let mut instance_fields = HashMap::new();
                     for (field_name, field_value) in fields {
                         let value = self.evaluate_expression(field_value, env)?;
@@ -208,6 +283,38 @@ impl Interpreter {
                     ))
                 }
             }
+            Expression::Path { parts } => {
+                if parts.len() == 2 {
+                    let enum_name = &parts[0];
+                    let variant_name = &parts[1];
+                    let enum_val = env.get(enum_name).cloned().ok_or_else(|| {
+                        RuntimeError::TypeError(format!("{} is not an enum", enum_name))
+                    })?;
+
+                    if let Value::Enum(enum_def) = enum_val {
+                        if enum_def.variants.contains(variant_name) {
+                            Ok(Value::EnumVariant(EnumVariant {
+                                enum_name: enum_name.clone(),
+                                variant_name: variant_name.clone(),
+                            }))
+                        } else {
+                            Err(RuntimeError::TypeError(format!(
+                                "{} is not a variant of {}",
+                                variant_name, enum_name
+                            )))
+                        }
+                    } else {
+                        Err(RuntimeError::TypeError(format!(
+                            "{} is not an enum",
+                            enum_name
+                        )))
+                    }
+                } else {
+                    Err(RuntimeError::TypeError(
+                        "Invalid path expression".to_string(),
+                    ))
+                }
+            }
             _ => unimplemented!(),
         }
     }
@@ -216,6 +323,7 @@ impl Interpreter {
         match literal {
             LiteralValue::Integer(val) => Value::Integer(*val),
             LiteralValue::String(val) => Value::String(val.clone()),
+            LiteralValue::Boolean(val) => Value::Boolean(*val),
         }
     }
 
@@ -231,11 +339,27 @@ impl Interpreter {
                 Operator::Subtract => Ok(Value::Integer(left - right)),
                 Operator::Multiply => Ok(Value::Integer(left * right)),
                 Operator::Divide => Ok(Value::Integer(left / right)),
+                Operator::Equal => Ok(Value::Boolean(left == right)),
+                Operator::NotEqual => Ok(Value::Boolean(left != right)),
+                Operator::GreaterThan => Ok(Value::Boolean(left > right)),
+                Operator::GreaterThanEqual => Ok(Value::Boolean(left >= right)),
+                Operator::LessThan => Ok(Value::Boolean(left < right)),
+                Operator::LessThanEqual => Ok(Value::Boolean(left <= right)),
             },
             (Value::String(left), Value::String(right)) => match op {
                 Operator::Add => Ok(Value::String(format!("{}{}", left, right))),
+                Operator::Equal => Ok(Value::Boolean(left == right)),
+                Operator::NotEqual => Ok(Value::Boolean(left != right)),
                 _ => Err(RuntimeError::TypeError(format!(
                     "Unsupported operator {:?} for strings",
+                    op
+                ))),
+            },
+            (Value::Boolean(left), Value::Boolean(right)) => match op {
+                Operator::Equal => Ok(Value::Boolean(left == right)),
+                Operator::NotEqual => Ok(Value::Boolean(left != right)),
+                _ => Err(RuntimeError::TypeError(format!(
+                    "Unsupported operator {:?} for booleans",
                     op
                 ))),
             },
@@ -253,7 +377,7 @@ mod tests {
     use crate::lexer::Lexer;
     use crate::parser::Parser;
 
-    fn interpret_source(source: &str) -> Result<Value, RuntimeError> {
+    fn interpret_source(source: &str) -> Result<Option<Value>, RuntimeError> {
         let tokens = Lexer::new(source).tokenize().unwrap();
         let mut parser = Parser::new(&tokens);
         let program = parser.parse_program().unwrap();
@@ -264,32 +388,34 @@ mod tests {
 
     #[test]
     fn test_integer_expression() {
-        let result = interpret_source("5;").unwrap();
+        let result = interpret_source("5;").unwrap().unwrap();
         assert_eq!(result, Value::Integer(5));
     }
 
     #[test]
     fn test_addition() {
-        let result = interpret_source("1 + 5;").unwrap();
+        let result = interpret_source("1 + 5;").unwrap().unwrap();
         assert_eq!(result, Value::Integer(6));
     }
 
     #[test]
     fn test_assignment() {
-        let result = interpret_source("x = 5; x;").unwrap();
+        let result = interpret_source("x = 5; x;").unwrap().unwrap();
         assert_eq!(result, Value::Integer(5));
     }
 
     #[test]
     fn test_function_call() {
         let source = "func add(a, b) { a + b; } add(1, 2);";
-        let result = interpret_source(source).unwrap();
+        let result = interpret_source(source).unwrap().unwrap();
         assert_eq!(result, Value::Integer(3));
     }
 
     #[test]
     fn test_variable_declaration() {
-        let result = interpret_source("x : int; x;").unwrap();
+        let result = interpret_source("x : int; x;")
+            .unwrap()
+            .unwrap_or(Value::Null);
         assert_eq!(result, Value::Null);
     }
 }

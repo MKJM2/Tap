@@ -34,76 +34,95 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statement(&mut self) -> Result<Statement, ParseError> {
+        if self.match_token(&TokenType::KeywordIf) {
+            return self.parse_if_statement();
+        }
         if self.match_token(&TokenType::KeywordFunc) {
             return self.parse_function_def();
         }
-
-        if self.match_token(&TokenType::KeywordStruct) {
-            return self.parse_struct_declaration();
-        }
-
-        if self.match_token(&TokenType::KeywordEnum) {
-            return self.parse_enum_declaration();
+        if self.match_token(&TokenType::KeywordReturn) {
+            return self.parse_return_statement();
         }
 
         if self.check(&TokenType::Identifier) && self.peek_next_is(&TokenType::Colon) {
-            let name = self.consume(&TokenType::Identifier, "Expect identifier.")?.lexeme.clone();
+            let name = self
+                .consume(&TokenType::Identifier, "Expect identifier.")?
+                .lexeme
+                .clone();
             self.consume(&TokenType::Colon, "Expect ':' for type annotation.")?;
+
+            if self.match_token(&TokenType::KeywordStruct) {
+                return self.parse_struct_declaration_after_name(name);
+            }
+            if self.match_token(&TokenType::KeywordEnum) {
+                return self.parse_enum_declaration_after_name(name);
+            }
+
             let type_annotation = self.parse_type_annotation()?;
 
             if self.match_token(&TokenType::Assign) {
                 let value = self.parse_expression()?;
-                self.consume(&TokenType::Semicolon, "Expect ';' after variable declaration.")?;
+                self.consume(
+                    &TokenType::Semicolon,
+                    "Expect ';' after variable declaration.",
+                )?;
                 return Ok(Statement::Assignment { name, value });
             } else {
-                self.consume(&TokenType::Semicolon, "Expect ';' after variable declaration.")?;
-                return Ok(Statement::VarDecl { name, type_annotation });
+                self.consume(
+                    &TokenType::Semicolon,
+                    "Expect ';' after variable declaration.",
+                )?;
+                return Ok(Statement::VarDecl {
+                    name,
+                    type_annotation,
+                });
+            }
+        } else {
+            // This is an expression statement or assignment
+            if self.check(&TokenType::Identifier)
+                && (self.peek_next_is(&TokenType::Assign)
+                    || self.peek_next_is(&TokenType::AddAssign))
+            {
+                let name = self
+                    .consume(&TokenType::Identifier, "Expect identifier for assignment.")?
+                    .lexeme
+                    .clone();
+                if self.match_token(&TokenType::Assign) {
+                    let value = self.parse_expression()?;
+                    self.consume(&TokenType::Semicolon, "Expect ';' after assignment.")?;
+                    Ok(Statement::Assignment { name, value })
+                } else if self.match_token(&TokenType::AddAssign) {
+                    let value = Expression::Binary {
+                        left: Box::new(Expression::Identifier(name.clone())),
+                        op: Operator::Add,
+                        right: Box::new(self.parse_expression()?),
+                    };
+                    self.consume(
+                        &TokenType::Semicolon,
+                        "Expect ';' after compound assignment.",
+                    )?;
+                    Ok(Statement::Assignment { name, value })
+                } else {
+                    unreachable!(); // Should not happen due to the peek_next_is check
+                }
+            } else {
+                let expr = self.parse_expression()?;
+                self.consume(&TokenType::Semicolon, "Expect ';' after expression.")?;
+                Ok(Statement::Expression(expr))
             }
         }
-
-        let expr = self.parse_expression()?;
-
-        let statement = if self.match_token(&TokenType::Assign) {
-            let name = match expr {
-                Expression::Identifier(name) => name,
-                _ => return Err(ParseError::UnexpectedToken {
-                    expected: "Identifier".to_string(),
-                    found: format!("{:?}", expr),
-                    line: self.previous().line,
-                }),
-            };
-            let value = self.parse_expression()?;
-            Statement::Assignment { name, value }
-        } else if self.match_token(&TokenType::AddAssign) {
-            let name = match expr {
-                Expression::Identifier(name) => name,
-                _ => return Err(ParseError::UnexpectedToken {
-                    expected: "Identifier".to_string(),
-                    found: format!("{:?}", expr),
-                    line: self.previous().line,
-                }),
-            };
-            let value = Expression::Binary {
-                left: Box::new(Expression::Identifier(name.clone())),
-                op: Operator::Add,
-                right: Box::new(self.parse_expression()?),
-            };
-            Statement::Assignment { name, value }
-        } else {
-            Statement::Expression(expr)
-        };
-
-        self.consume(&TokenType::Semicolon, "Expect ';' after statement.")?;
-        Ok(statement)
     }
 
-    fn parse_enum_declaration(&mut self) -> Result<Statement, ParseError> {
-        let name = self.consume(&TokenType::Identifier, "Expect enum name.")?.lexeme.clone();
+    fn parse_enum_declaration_after_name(&mut self, name: String) -> Result<Statement, ParseError> {
         self.consume(&TokenType::OpenBrace, "Expect '{' before enum variants.")?;
         let mut variants = Vec::new();
         if !self.check(&TokenType::CloseBrace) {
             loop {
-                variants.push(self.consume(&TokenType::Identifier, "Expect variant name.")?.lexeme.clone());
+                variants.push(
+                    self.consume(&TokenType::Identifier, "Expect variant name.")?
+                        .lexeme
+                        .clone(),
+                );
                 if !self.match_token(&TokenType::Comma) {
                     break;
                 }
@@ -113,14 +132,18 @@ impl<'a> Parser<'a> {
         Ok(Statement::EnumDecl(crate::ast::EnumDecl { name, variants }))
     }
 
-
-    fn parse_struct_declaration(&mut self) -> Result<Statement, ParseError> {
-        let name = self.consume(&TokenType::Identifier, "Expect struct name.")?.lexeme.clone();
+    fn parse_struct_declaration_after_name(
+        &mut self,
+        name: String,
+    ) -> Result<Statement, ParseError> {
         self.consume(&TokenType::OpenBrace, "Expect '{' before struct fields.")?;
         let mut fields = Vec::new();
         if !self.check(&TokenType::CloseBrace) {
             loop {
-                let field_name = self.consume(&TokenType::Identifier, "Expect field name.")?.lexeme.clone();
+                let field_name = self
+                    .consume(&TokenType::Identifier, "Expect field name.")?
+                    .lexeme
+                    .clone();
                 self.consume(&TokenType::Colon, "Expect ':' after field name.")?;
                 let type_annotation = self.parse_type_annotation()?;
                 fields.push((field_name, type_annotation));
@@ -130,10 +153,15 @@ impl<'a> Parser<'a> {
             }
         }
         self.consume(&TokenType::CloseBrace, "Expect '}' after struct fields.")?;
-        self.consume(&TokenType::Semicolon, "Expect ';' after struct declaration.")?;
-        Ok(Statement::StructDecl(crate::ast::StructDecl { name, fields }))
+        self.consume(
+            &TokenType::Semicolon,
+            "Expect ';' after struct declaration.",
+        )?;
+        Ok(Statement::StructDecl(crate::ast::StructDecl {
+            name,
+            fields,
+        }))
     }
-
 
     fn parse_type_annotation(&mut self) -> Result<TypeAnnotation, ParseError> {
         let mut type_ann = self.parse_primary_type()?;
@@ -156,7 +184,10 @@ impl<'a> Parser<'a> {
             Ok(TypeAnnotation::Str)
         } else if self.match_token(&TokenType::OpenBracket) {
             let inner_type = self.parse_type_annotation()?;
-            self.consume(&TokenType::CloseBracket, "Expect ']' after type in array type.")?;
+            self.consume(
+                &TokenType::CloseBracket,
+                "Expect ']' after type in array type.",
+            )?;
             Ok(TypeAnnotation::Array(Box::new(inner_type)))
         } else {
             Err(ParseError::UnexpectedToken {
@@ -168,13 +199,20 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_function_def(&mut self) -> Result<Statement, ParseError> {
-        let name = self.consume(&TokenType::Identifier, "Expect function name.")?.lexeme.clone();
+        let name = self
+            .consume(&TokenType::Identifier, "Expect function name.")?
+            .lexeme
+            .clone();
         self.consume(&TokenType::OpenParen, "Expect '(' after function name.")?;
         let mut args = Vec::new();
         if !self.check(&TokenType::CloseParen) {
             loop {
                 // TODO: Add type annotations for args
-                args.push(self.consume(&TokenType::Identifier, "Expect parameter name.")?.lexeme.clone());
+                args.push(
+                    self.consume(&TokenType::Identifier, "Expect parameter name.")?
+                        .lexeme
+                        .clone(),
+                );
                 if !self.match_token(&TokenType::Comma) {
                     break;
                 }
@@ -188,11 +226,46 @@ impl<'a> Parser<'a> {
         }
         self.consume(&TokenType::CloseBrace, "Expect '}' after function body.")?;
 
-        Ok(Statement::FunctionDef(crate::ast::FunctionDef { name, args, body }))
+        Ok(Statement::FunctionDef(crate::ast::FunctionDef {
+            name,
+            args,
+            body,
+        }))
     }
 
     fn parse_expression(&mut self) -> Result<Expression, ParseError> {
-        self.parse_term()
+        self.parse_comparison()
+    }
+
+    fn parse_comparison(&mut self) -> Result<Expression, ParseError> {
+        let mut expr = self.parse_term()?;
+
+        while self.match_tokens(&[
+            TokenType::Equal,
+            TokenType::NotEqual,
+            TokenType::GreaterThan,
+            TokenType::GreaterThanEqual,
+            TokenType::LessThan,
+            TokenType::LessThanEqual,
+        ]) {
+            let op = match self.previous().token_type {
+                TokenType::Equal => Operator::Equal,
+                TokenType::NotEqual => Operator::NotEqual,
+                TokenType::GreaterThan => Operator::GreaterThan,
+                TokenType::GreaterThanEqual => Operator::GreaterThanEqual,
+                TokenType::LessThan => Operator::LessThan,
+                TokenType::LessThanEqual => Operator::LessThanEqual,
+                _ => unreachable!(),
+            };
+            let right = self.parse_term()?;
+            expr = Expression::Binary {
+                left: Box::new(expr),
+                op,
+                right: Box::new(right),
+            };
+        }
+
+        Ok(expr)
     }
 
     fn parse_term(&mut self) -> Result<Expression, ParseError> {
@@ -246,6 +319,14 @@ impl<'a> Parser<'a> {
                     self.advance();
                     Expression::Literal(LiteralValue::String(val))
                 }
+                TokenType::KeywordTrue => {
+                    self.advance();
+                    Expression::Literal(LiteralValue::Boolean(true))
+                }
+                TokenType::KeywordFalse => {
+                    self.advance();
+                    Expression::Literal(LiteralValue::Boolean(false))
+                }
                 TokenType::Identifier => {
                     if self.peek_next_is(&TokenType::OpenBrace) {
                         return self.parse_struct_instantiation();
@@ -260,13 +341,13 @@ impl<'a> Parser<'a> {
                     expr
                 }
                 TokenType::OpenBracket => self.parse_list_literal()?,
-                TokenType::OpOr => self.parse_lambda_expression()?,
+                TokenType::Lambda => self.parse_lambda_expression()?,
                 _ => {
                     return Err(ParseError::UnexpectedToken {
                         expected: "expression".to_string(),
                         found: format!("{:?}", token.token_type),
                         line: token.line,
-                    })
+                    });
                 }
             }
         } else {
@@ -277,7 +358,10 @@ impl<'a> Parser<'a> {
             if self.match_token(&TokenType::OpenParen) {
                 expr = self.parse_call_expression(expr)?;
             } else if self.match_token(&TokenType::Period) {
-                let name = self.consume(&TokenType::Identifier, "Expect property name after '.'.")?.lexeme.clone();
+                let name = self
+                    .consume(&TokenType::Identifier, "Expect property name after '.'.")?
+                    .lexeme
+                    .clone();
                 expr = Expression::Get {
                     object: Box::new(expr),
                     name,
@@ -291,12 +375,18 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_struct_instantiation(&mut self) -> Result<Expression, ParseError> {
-        let name = self.consume(&TokenType::Identifier, "Expect struct name.")?.lexeme.clone();
+        let name = self
+            .consume(&TokenType::Identifier, "Expect struct name.")?
+            .lexeme
+            .clone();
         self.consume(&TokenType::OpenBrace, "Expect '{' before struct fields.")?;
         let mut fields = Vec::new();
         if !self.check(&TokenType::CloseBrace) {
             loop {
-                let field_name = self.consume(&TokenType::Identifier, "Expect field name.")?.lexeme.clone();
+                let field_name = self
+                    .consume(&TokenType::Identifier, "Expect field name.")?
+                    .lexeme
+                    .clone();
                 self.consume(&TokenType::Colon, "Expect ':' after field name.")?;
                 let value = self.parse_expression()?;
                 fields.push((field_name, value));
@@ -308,7 +398,6 @@ impl<'a> Parser<'a> {
         self.consume(&TokenType::CloseBrace, "Expect '}' after struct fields.")?;
         Ok(Expression::StructInstantiation { name, fields })
     }
-
 
     fn parse_call_expression(&mut self, callee: Expression) -> Result<Expression, ParseError> {
         let mut args = Vec::new();
@@ -328,26 +417,28 @@ impl<'a> Parser<'a> {
         })
     }
 
-
     fn parse_lambda_expression(&mut self) -> Result<Expression, ParseError> {
-        self.consume(&TokenType::OpOr, "Expect '|' for lambda expression.")?;
+        self.consume(&TokenType::Lambda, "Expect '\' for lambda expression.")?;
         let mut args = Vec::new();
         if !self.check(&TokenType::OpOr) {
             loop {
-                args.push(self.consume(&TokenType::Identifier, "Expect parameter name.")?.lexeme.clone());
+                args.push(
+                    self.consume(&TokenType::Identifier, "Expect parameter name.")?
+                        .lexeme
+                        .clone(),
+                );
                 if !self.match_token(&TokenType::Comma) {
                     break;
                 }
             }
         }
-        self.consume(&TokenType::OpOr, "Expect '|' after lambda parameters.")?;
+        self.consume(&TokenType::Period, "Expect '.' after lambda parameters.")?;
         let body = self.parse_expression()?;
         Ok(Expression::Lambda {
             args,
             body: Box::new(body),
         })
     }
-
 
     fn parse_list_literal(&mut self) -> Result<Expression, ParseError> {
         self.consume(&TokenType::OpenBracket, "Expect '[' for list literal.")?;
@@ -363,8 +454,6 @@ impl<'a> Parser<'a> {
         self.consume(&TokenType::CloseBracket, "Expect ']' after list elements.")?;
         Ok(Expression::List(elements))
     }
-
-
 
     // Helper functions
 
@@ -393,7 +482,9 @@ impl<'a> Parser<'a> {
         }
 
         // Semicolon relaxation for REPL
-        if self.is_at_end() && std::mem::discriminant(token_type) == std::mem::discriminant(&TokenType::Semicolon) {
+        if self.is_at_end()
+            && std::mem::discriminant(token_type) == std::mem::discriminant(&TokenType::Semicolon)
+        {
             // If we expect a semicolon but we are at the end, it's fine
             return Ok(self.peek().unwrap_or(&self.tokens[self.tokens.len() - 1]));
         }
@@ -409,7 +500,8 @@ impl<'a> Parser<'a> {
         if self.is_at_end() {
             return false;
         }
-        std::mem::discriminant(&self.peek().unwrap().token_type) == std::mem::discriminant(token_type)
+        std::mem::discriminant(&self.peek().unwrap().token_type)
+            == std::mem::discriminant(token_type)
     }
 
     fn peek_next_is(&self, token_type: &TokenType) -> bool {
@@ -435,6 +527,39 @@ impl<'a> Parser<'a> {
 
     fn previous(&self) -> &Token {
         &self.tokens[self.current - 1]
+    }
+
+    fn parse_block(&mut self) -> Result<Vec<Statement>, ParseError> {
+        self.consume(&TokenType::OpenBrace, "Expect '{' before block.")?;
+        let mut statements = Vec::new();
+        while !self.check(&TokenType::CloseBrace) && !self.is_at_end() {
+            statements.push(self.parse_statement()?);
+        }
+        self.consume(&TokenType::CloseBrace, "Expect '}' after block.")?;
+        Ok(statements)
+    }
+
+    fn parse_if_statement(&mut self) -> Result<Statement, ParseError> {
+        let condition = self.parse_expression()?;
+        let then_branch = self.parse_block()?;
+        let else_branch = if self.match_token(&TokenType::KeywordElse) {
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+
+        Ok(Statement::If {
+            condition,
+            then_branch,
+            else_branch,
+        })
+    }
+
+    fn parse_return_statement(&mut self) -> Result<Statement, ParseError> {
+        // The 'return' keyword has already been matched by parse_statement
+        let value = self.parse_expression()?;
+        self.consume(&TokenType::Semicolon, "Expect ';' after return value.")?;
+        Ok(Statement::Return(value))
     }
 }
 
@@ -569,7 +694,10 @@ mod tests {
         let program = parser.parse_program().unwrap();
         assert_eq!(program.statements.len(), 1);
         match &program.statements[0] {
-            Statement::VarDecl { name, type_annotation } => {
+            Statement::VarDecl {
+                name,
+                type_annotation,
+            } => {
                 assert_eq!(name, "x");
                 assert_eq!(*type_annotation, TypeAnnotation::Int);
             }
@@ -585,7 +713,9 @@ mod tests {
         let program = parser.parse_program().unwrap();
         assert_eq!(program.statements.len(), 1);
         match &program.statements[0] {
-            Statement::VarDecl { type_annotation, .. } => {
+            Statement::VarDecl {
+                type_annotation, ..
+            } => {
                 assert_eq!(
                     *type_annotation,
                     TypeAnnotation::Function {
@@ -606,7 +736,9 @@ mod tests {
         let program = parser.parse_program().unwrap();
         assert_eq!(program.statements.len(), 1);
         match &program.statements[0] {
-            Statement::VarDecl { type_annotation, .. } => {
+            Statement::VarDecl {
+                type_annotation, ..
+            } => {
                 assert_eq!(
                     *type_annotation,
                     TypeAnnotation::Array(Box::new(TypeAnnotation::Str))
