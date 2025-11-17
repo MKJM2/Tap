@@ -1,17 +1,32 @@
 # Tap
-A simple strongly-typed interpretted programming language crafted
-in modern C++. Tap's syntax is a fusion of features offered by
-language I love: C++, Haskell, Rust, GoLang, OCaml.
+An unremarkable but _Polished_ interpreted programming language. Originally built
+as a personal project to learn C++20 (+CMake & Gtest),
+it has since been rewritten in Rust (I like the convenience of match statements compared to std::visit (bleh)).
+Currently in ludicrous infancy. The goal is to solve all Advent of Code problems using Tap.
 
-Tap was built as a playground for learning programming language design,
-C++17 and C++20 features (including modules, variants), CMake
-project management and unit testing (using GoogleTest).
-As such, I implement my own lexer, parser, and interpreter
-(no GNU Bison used).
+## Current state of affairs:
+- Rust / C++ inspired syntax
+- tree walking interpreter
+- rudimentary runtime type checking
+- hand rolled lexer & parser
+- basic closure & lexical scoping
+- **bilingual keywords** (English + Polish aliases for all keywords)
 
-Disclaimer: Tap is in its infancy and many of the features are still not implemented.
+## but... why?
+Because I can. Also it's fun.
+Lexing and parsing are already solved problems (see the excellent [logos](https://docs.rs/logos/latest/logos/) crate for creating lexers,
+or [nom](https://docs.rs/nom/latest/nom/) creating parsers. People older to the trade are surely familiar with the [GNU Bison](https://www.gnu.org/software/bison/) parser _generator_).
 
-### Grammar (EBNF)
+
+## Planned features
+- floating point numbers (lol)
+- match statements
+- type inference
+- byte code compilation
+- VM
+- potentially experimenting into JIT compilation (but nothing too serious, I have a life)
+
+### EBNF Grammar (WIP)
 ```ebnf
 program         = {statement} .
 
@@ -110,10 +125,6 @@ comment         = "#" { ? any character except newline ? } "\n" .
 whitespace      = " " | "\t" | "\n" | "\r" .
 ```
 
-### Lexer Precedence
-- Keywords (func, return, struct, etc.) > Identifiers
-- Reserved words cannot be redefined
-
 ### Syntax examples
 ```
 # Variable assignment
@@ -175,17 +186,19 @@ for i in [1, 2, 3] {
 ```
 
 ### Dependencies
-- CMake
-- Ninja
-- GoogleTest
-- libreadline
-- C++20 compatible compiler
+- Rust 1.70+
+- Cargo
 
 ### Building
-To build the project, from the root directory execute
+To build the project, from the root directory
 ```bash
-mkdir build
-cd build
-cmake -GNinja ..
-ninja
+cargo build --release
+cargo run               # REPL
+cargo run -- <file>    # Run a script
+```
+
+### Testing
+Run the test suite:
+```bash
+cargo test
 ```
