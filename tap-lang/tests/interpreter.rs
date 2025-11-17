@@ -1,47 +1,135 @@
-use tap_lang::interpreter::{Interpreter, Value, EnumVariant};
 use tap_lang::environment::Environment;
+use tap_lang::interpreter::{Interpreter, Value};
 use tap_lang::lexer::Lexer;
 use tap_lang::parser::Parser;
 
-fn interpret_source(source: &str) -> Result<Option<Value>, tap_lang::interpreter::RuntimeError> {
+// --- TEST HELPERS ---
+
+/// Helper for tests that are expected to succeed.
+/// It lexes, parses, and interprets the source, panicking with a rich error if any step fails.
+/// Returns the final value of the last expression, if any.
+fn eval_source(source: &str) -> Option<Value> {
+    let tokens = Lexer::new(source).tokenize().unwrap_or_else(|e| {
+        panic!(
+            "Lexing failed for source:\n{}\nError: {:?}",
+            source.trim(),
+            e
+        );
+    });
+
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse_program().unwrap_or_else(|e| {
+        panic!(
+            "Parsing failed for source:\n{}\nError Report:\n{:?}",
+            source.trim(),
+            e
+        );
+    });
+
+    let interpreter = Interpreter::new();
+    let mut env = Environment::new();
+    interpreter
+        .interpret(&program, &mut env)
+        .unwrap_or_else(|e| {
+            panic!(
+                "Interpretation failed for source:\n{}\nRuntime Error: {}",
+                source.trim(),
+                e
+            );
+        })
+}
+
+/// Helper for tests that are expected to fail at runtime.
+/// It will panic if parsing fails or if the interpreter *succeeds*.
+fn expect_runtime_error(source: &str) {
     let tokens = Lexer::new(source).tokenize().unwrap();
     let mut parser = Parser::new(&tokens);
     let program = parser.parse_program().unwrap();
     let interpreter = Interpreter::new();
     let mut env = Environment::new();
-    interpreter.interpret(&program, &mut env)
+    let result = interpreter.interpret(&program, &mut env);
+    assert!(
+        result.is_err(),
+        "Expected a runtime error, but execution succeeded for source:\n{}",
+        source
+    );
+}
+
+// --- EXPRESSION & OPERATOR TESTS ---
+
+#[test]
+fn test_literal_evaluation() {
+    assert_eq!(eval_source("42;").unwrap(), Value::Integer(42));
+    assert_eq!(
+        eval_source("\"hello\";").unwrap(),
+        Value::String("hello".to_string())
+    );
+    assert_eq!(eval_source("true;").unwrap(), Value::Boolean(true));
+    assert_eq!(eval_source("false;").unwrap(), Value::Boolean(false));
 }
 
 #[test]
-fn test_lambda_evaluation() {
-    let source = r"(\x. x + 1)(5);";
-    let result = interpret_source(source).unwrap().unwrap();
-    assert_eq!(result, Value::Integer(6));
+fn test_arithmetic_expressions() {
+    assert_eq!(eval_source("10 + 5;").unwrap(), Value::Integer(15));
+    assert_eq!(eval_source("10 - 5;").unwrap(), Value::Integer(5));
+    assert_eq!(eval_source("10 * 5;").unwrap(), Value::Integer(50));
+    assert_eq!(eval_source("10 / 5;").unwrap(), Value::Integer(2));
 }
 
 #[test]
-fn test_struct_instantiation() {
-    let source = r#"
-        Point : struct { x: int, y: int };
-        p = Point { x: 1, y: 2 };
-        p.x;
-    "#;
-    let result = interpret_source(source).unwrap().unwrap();
-    assert_eq!(result, Value::Integer(1));
+fn test_operator_precedence() {
+    assert_eq!(eval_source("5 + 2 * 10;").unwrap(), Value::Integer(25));
+    assert_eq!(eval_source("(5 + 2) * 10;").unwrap(), Value::Integer(70));
 }
 
 #[test]
-fn test_enum_variant_access() {
-    let source = r#"
-        Color : enum { Red, Green, Blue };
-        Color::Red;
-    "#;
-    let result = interpret_source(source).unwrap().unwrap();
-    assert_eq!(result, Value::EnumVariant(EnumVariant {
-        enum_name: "Color".to_string(),
-        variant_name: "Red".to_string(),
-    }));
+fn test_comparison_expressions() {
+    assert_eq!(eval_source("10 > 5;").unwrap(), Value::Boolean(true));
+    assert_eq!(eval_source("10 < 5;").unwrap(), Value::Boolean(false));
+    assert_eq!(eval_source("10 == 10;").unwrap(), Value::Boolean(true));
+    assert_eq!(eval_source("10 != 5;").unwrap(), Value::Boolean(true));
 }
+
+#[test]
+fn test_division_by_zero_error() {
+    expect_runtime_error("10 / 0;");
+}
+
+// --- VARIABLE & SCOPING TESTS ---
+
+#[test]
+fn test_variable_assignment_and_retrieval() {
+    let source = "x = 42; x;";
+    assert_eq!(eval_source(source).unwrap(), Value::Integer(42));
+}
+
+// --- CONTROL FLOW TESTS ---
+
+#[test]
+fn test_if_statement() {
+    assert_eq!(eval_source("if true { 1; }").unwrap(), Value::Integer(1));
+    assert_eq!(eval_source("if false { 1; }"), None);
+}
+
+#[test]
+fn test_if_else_statement() {
+    assert_eq!(
+        eval_source("if true { 1; } else { 2; }").unwrap(),
+        Value::Integer(1)
+    );
+    assert_eq!(
+        eval_source("if false { 1; } else { 2; }").unwrap(),
+        Value::Integer(2)
+    );
+}
+
+#[test]
+fn test_if_as_expression() {
+    let source = "x = if 1 > 0 { 100; } else { 200; }; x;";
+    assert_eq!(eval_source(source).unwrap(), Value::Integer(100));
+}
+
+// --- FUNCTION AND CLOSURE TESTS ---
 
 #[test]
 fn test_basic_function_invocation() {
@@ -51,37 +139,18 @@ fn test_basic_function_invocation() {
         }
         multiply(3, 4);
     "#;
-    let result = interpret_source(source).unwrap().unwrap();
-    assert_eq!(result, Value::Integer(12));
+    assert_eq!(eval_source(source).unwrap(), Value::Integer(12));
 }
 
 #[test]
-fn test_struct_with_enum() {
+fn test_implicit_return_from_function() {
     let source = r#"
-        Status : enum { Active, Inactive };
-        User : struct { name: str, status: Status };
-        u = User { name: "Alice", status: Status::Active };
-        u.status;
-    "#;
-    let result = interpret_source(source).unwrap().unwrap();
-    assert_eq!(result, Value::EnumVariant(EnumVariant {
-        enum_name: "Status".to_string(),
-        variant_name: "Active".to_string(),
-    }));
-}
-
-#[test]
-fn test_function_with_struct_arg() {
-    let source = r#"
-        Point : struct { x: int, y: int };
-        func get_x(p) {
-            return p.x;
+        func add(a, b) {
+            a + b;
         }
-        p = Point { x: 10, y: 20 };
-        get_x(p);
+        add(7, 8);
     "#;
-    let result = interpret_source(source).unwrap().unwrap();
-    assert_eq!(result, Value::Integer(10));
+    assert_eq!(eval_source(source).unwrap(), Value::Integer(15));
 }
 
 #[test]
@@ -95,103 +164,165 @@ fn test_recursive_function_factorial() {
         }
         factorial(5);
     "#;
-    let result = interpret_source(source).unwrap().unwrap();
-    assert_eq!(result, Value::Integer(120));
+    assert_eq!(eval_source(source).unwrap(), Value::Integer(120));
 }
 
 #[test]
-fn test_nested_lambdas() {
+fn test_lambda_evaluation() {
+    let source = r"(\x. x + 1)(5);";
+    assert_eq!(eval_source(source).unwrap(), Value::Integer(6));
+}
+
+#[test]
+fn test_closure_captures_environment() {
+    let source = r#"
+        x = 10;
+        f = \y. x + y;
+        f(5);
+    "#;
+    assert_eq!(eval_source(source).unwrap(), Value::Integer(15));
+}
+
+#[test]
+fn test_nested_lambdas_and_currying() {
     let source = r#"
         add_x = \x. \y. x + y;
         add_five = add_x(5);
         add_five(3);
     "#;
-    // Expected result: Value::Integer(8)
-    let result = interpret_source(source);
-    assert!(result.is_err()); // Expecting an error until nested lambdas are fully implemented
+    assert_eq!(eval_source(source).unwrap(), Value::Integer(8));
+}
+
+// --- DATA STRUCTURE TESTS ---
+
+#[test]
+fn test_struct_instantiation_and_access() {
+    let source = r#"
+        Point : struct { x: int, y: int };
+        p = Point { x: 1, y: 2 };
+        p.x;
+    "#;
+    assert_eq!(eval_source(source).unwrap(), Value::Integer(1));
 }
 
 #[test]
-fn test_list_access() {
+fn test_struct_field_modification() {
+    let source = r#"
+        Point : struct { x: int, y: int };
+        p = Point { x: 1, y: 2 };
+        p.y = 99;
+        p.y;
+    "#;
+    assert_eq!(eval_source(source).unwrap(), Value::Integer(99));
+}
+
+#[test]
+fn test_function_with_struct_arg() {
+    let source = r#"
+        Point : struct { x: int, y: int };
+        func get_x(p) {
+            return p.x;
+        }
+        p = Point { x: 10, y: 20 };
+        get_x(p);
+    "#;
+    assert_eq!(eval_source(source).unwrap(), Value::Integer(10));
+}
+
+#[test]
+fn test_enum_variant_creation() {
+    let source = r#"
+        Color : enum { Red, Green, Blue };
+        c = Color::Red;
+        c;
+    "#;
+    let result = eval_source(source).unwrap();
+    // **FIXED**: Correctly destructure the wrapped EnumVariant struct
+    if let Value::EnumVariant(variant) = result {
+        assert_eq!(variant.enum_name, "Color");
+        assert_eq!(variant.variant_name, "Red");
+    } else {
+        panic!("Expected an enum variant, got {:?}", result);
+    }
+}
+
+#[test]
+fn test_struct_with_enum_field() {
+    let source = r#"
+        Status : enum { Active, Inactive };
+        User : struct { name: str, status: Status };
+        u = User { name: "Alice", status: Status::Active };
+        u.status;
+    "#;
+    let result = eval_source(source).unwrap();
+    // **FIXED**: Correctly destructure the wrapped EnumVariant struct
+    if let Value::EnumVariant(variant) = result {
+        assert_eq!(variant.enum_name, "Status");
+        assert_eq!(variant.variant_name, "Active");
+    } else {
+        panic!("Expected an enum variant, got {:?}", result);
+    }
+}
+
+// --- LIST TESTS (assuming list support is partial) ---
+
+#[test]
+fn test_list_creation_and_access() {
     let source = r#"
         my_list = [10, 20, 30];
         my_list[1];
     "#;
-    // Expected result: Value::Integer(20)
-    let result = interpret_source(source);
-    assert!(result.is_err()); // Expecting an error until list access is implemented
+    assert_eq!(eval_source(source).unwrap(), Value::Integer(20));
 }
 
 #[test]
+fn test_list_access_out_of_bounds() {
+    let source = r#"
+        my_list = [10, 20, 30];
+        my_list[99];
+    "#;
+    expect_runtime_error(source);
+}
+
+#[test]
+#[ignore] // Enable when list modification is implemented
 fn test_list_modification() {
     let source = r#"
         my_list = [10, 20, 30];
         my_list[1] = 25;
         my_list[1];
     "#;
-    // Expected result: Value::Integer(25)
-    let result = interpret_source(source);
-    assert!(result.is_err()); // Expecting an error until list modification is implemented
+    assert_eq!(eval_source(source).unwrap(), Value::Integer(25));
 }
 
-#[test]
-fn test_if_statement() {
-    // Test basic if statement (true condition)
-    let source_if_true = r#"
-        x = 10;
-        if x > 5 {
-            20;
-        } else {
-            30;
-        }
-    "#;
-    let result_if_true = interpret_source(source_if_true).unwrap().unwrap();
-    assert_eq!(result_if_true, Value::Integer(20));
-
-    // Test basic if statement (false condition)
-    let source_if_false = r#"
-        x = 10;
-        if x < 5 {
-            20;
-        } else {
-            30;
-        }
-    "#;
-    let result_if_false = interpret_source(source_if_false).unwrap().unwrap();
-    assert_eq!(result_if_false, Value::Integer(30));
-
-    // Test if statement with only if block (true condition)
-    let source_if_only_true = r#"
-        x = 10;
-        if x > 5 {
-            20;
-        }
-    "#;
-    let result_if_only_true = interpret_source(source_if_only_true).unwrap().unwrap();
-    assert_eq!(result_if_only_true, Value::Integer(20));
-
-    // Test if statement with only if block (false condition)
-    let source_if_only_false = r#"
-        x = 3;
-        if x > 5 {
-            20;
-        }
-    "#;
-    let result_if_only_false = interpret_source(source_if_only_false).unwrap().unwrap_or(Value::Null);
-    assert_eq!(result_if_only_false, Value::Null);
-}
+// --- FUTURE FEATURE TESTS (IGNORED) ---
 
 #[test]
-fn test_enum_in_struct_access() {
+#[ignore]
+fn test_match_statement_with_enums() {
     let source = r#"
-        TrafficLight : enum { Red, Yellow, Green };
-        Car : struct { id: int, light_status: TrafficLight };
-        my_car = Car { id: 1, light_status: TrafficLight::Green };
-        my_car.light_status;
+        Status : enum { Active, Inactive };
+        s = Status::Active;
+        result = match s {
+            Status::Active => 1,
+            Status::Inactive => 0
+        };
+        result;
     "#;
-    let result = interpret_source(source).unwrap().unwrap();
-    assert_eq!(result, Value::EnumVariant(EnumVariant {
-        enum_name: "TrafficLight".to_string(),
-        variant_name: "Green".to_string(),
-    }));
+    assert_eq!(eval_source(source).unwrap(), Value::Integer(1));
+}
+
+#[test]
+#[ignore]
+fn test_while_loop() {
+    let source = r#"
+        x = 5;
+        y = 0;
+        while x > 0 {
+            y = y + x;
+            x = x - 1;
+        }
+        y; // 5 + 4 + 3 + 2 + 1 = 15
+    "#;
+    assert_eq!(eval_source(source).unwrap(), Value::Integer(15));
 }

@@ -24,6 +24,7 @@ pub enum TypeAnnotation {
     Enum {
         name: String,
     },
+    UserDefined(String),
     // TODO: Add other types
 }
 
@@ -33,6 +34,11 @@ pub enum Statement {
     Expression(Expression),
     Assignment {
         name: String,
+        value: Expression,
+    },
+    PropertyAssignment {
+        object: Expression,
+        property: String,
         value: Expression,
     },
     VarDecl {
@@ -108,6 +114,14 @@ pub enum Expression {
         condition: Box<Expression>,
         then_branch: Vec<Statement>,
         else_branch: Option<Vec<Statement>>,
+    },
+    EnumVariant {
+        enum_name: String,
+        variant_name: String,
+    },
+    ArrayAccess {
+        array: Box<Expression>,
+        index: Box<Expression>,
     },
     // TODO:
     // Unary,

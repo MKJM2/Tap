@@ -2,6 +2,7 @@ use crate::ast::{Expression, FunctionDef, LiteralValue, Operator, Program, State
 use crate::environment::Environment;
 use std::collections::HashMap;
 use std::fmt;
+use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Lambda {
@@ -71,9 +72,13 @@ impl fmt::Display for Value {
 }
 
 /// Represents an error that can occur during interpretation.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Error, Debug, Clone, PartialEq)]
 pub enum RuntimeError {
+    #[error("Undefined variable: {0}")]
     UndefinedVariable(String),
+    #[error("Invalid access: {0}")]
+    InvalidAccess(String),
+    #[error("Type error: {0}")]
     TypeError(String),
 }
 
@@ -180,6 +185,49 @@ impl Interpreter {
             Statement::Return(expr) => {
                 let value = self.evaluate_expression(expr, env)?;
                 Ok(Some(value))
+            }
+            Statement::PropertyAssignment {
+                object,
+                property,
+                value,
+            } => {
+                // This approach requires the object being assigned to be a simple variable name.
+                let object_name = if let Expression::Identifier(name) = object {
+                    name
+                } else {
+                    return Err(RuntimeError::TypeError(
+                        // Assuming you have a RuntimeError variant
+                        "Cannot assign to property of a non-variable.".to_string(),
+                    ));
+                };
+
+                let new_value = self.evaluate_expression(value, env)?;
+
+                // 1. Get a COPY of the struct instance from the environment.
+                let object_val = env
+                    .get(object_name)
+                    .ok_or_else(|| RuntimeError::UndefinedVariable(object_name.clone()))?
+                    .clone();
+
+                if let Value::StructInstance(mut instance) = object_val {
+                    // 2. MUTATE THE LOCAL COPY
+                    if instance.fields.contains_key(property) {
+                        instance.fields.insert(property.clone(), new_value);
+                    } else {
+                        return Err(RuntimeError::InvalidAccess(format!(
+                            "Property '{}' does not exist on struct '{}'",
+                            property, instance.name
+                        )));
+                    }
+
+                    // 3. UPDATE THE ENVIRONMENT with the new, mutated copy.
+                    env.set(object_name.clone(), Value::StructInstance(instance));
+                    Ok(None)
+                } else {
+                    Err(RuntimeError::TypeError(
+                        "Only struct instances can have properties assigned.".to_string(),
+                    ))
+                }
             }
         }
     }
@@ -362,6 +410,60 @@ impl Interpreter {
                 }
                 Ok(Value::List(evaluated_elements))
             }
+            Expression::EnumVariant {
+                enum_name,
+                variant_name,
+            } => {
+                let enum_val = env.get(enum_name).cloned().ok_or_else(|| {
+                    RuntimeError::TypeError(format!("{} is not an enum", enum_name))
+                })?;
+
+                if let Value::Enum(enum_def) = enum_val {
+                    if enum_def.variants.contains(variant_name) {
+                        Ok(Value::EnumVariant(EnumVariant {
+                            enum_name: enum_name.clone(),
+                            variant_name: variant_name.clone(),
+                        }))
+                    } else {
+                        Err(RuntimeError::TypeError(format!(
+                            "{} is not a variant of {}",
+                            variant_name, enum_name
+                        )))
+                    }
+                } else {
+                    Err(RuntimeError::TypeError(format!(
+                        "{} is not an enum",
+                        enum_name
+                    )))
+                }
+            }
+            Expression::ArrayAccess { array, index } => {
+                let array_val = self.evaluate_expression(array, env)?;
+                let index_val = self.evaluate_expression(index, env)?;
+
+                if let Value::List(elements) = array_val {
+                    if let Value::Integer(idx) = index_val {
+                        let idx_usize = idx as usize;
+                        if idx_usize < elements.len() {
+                            Ok(elements[idx_usize].clone())
+                        } else {
+                            Err(RuntimeError::InvalidAccess(format!(
+                                "Array index {} out of bounds. Length is {}",
+                                idx,
+                                elements.len()
+                            )))
+                        }
+                    } else {
+                        Err(RuntimeError::TypeError(
+                            "Array index must be an integer".to_string(),
+                        ))
+                    }
+                } else {
+                    Err(RuntimeError::TypeError(
+                        "Only arrays can be indexed".to_string(),
+                    ))
+                }
+            }
         }
     }
 
@@ -384,7 +486,14 @@ impl Interpreter {
                 Operator::Add => Ok(Value::Integer(left + right)),
                 Operator::Subtract => Ok(Value::Integer(left - right)),
                 Operator::Multiply => Ok(Value::Integer(left * right)),
-                Operator::Divide => Ok(Value::Integer(left / right)),
+                Operator::Divide => {
+                    if right == 0 {
+                        return Err(RuntimeError::TypeError(
+                            "Division by zero is not allowed".to_string(),
+                        ));
+                    }
+                    Ok(Value::Integer(left / right))
+                }
                 Operator::Equal => Ok(Value::Boolean(left == right)),
                 Operator::NotEqual => Ok(Value::Boolean(left != right)),
                 Operator::GreaterThan => Ok(Value::Boolean(left > right)),

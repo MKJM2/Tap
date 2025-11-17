@@ -1,10 +1,10 @@
 # Tap
 A simple strongly-typed interpretted programming language crafted
-in modern C++. Tap's syntax is a fusion of features offered by 
+in modern C++. Tap's syntax is a fusion of features offered by
 language I love: C++, Haskell, Rust, GoLang, OCaml.
 
 Tap was built as a playground for learning programming language design,
-C++17 and C++20 features (including modules, variants), CMake 
+C++17 and C++20 features (including modules, variants), CMake
 project management and unit testing (using GoogleTest).
 As such, I implement my own lexer, parser, and interpreter
 (no GNU Bison used).
@@ -34,7 +34,7 @@ return_stmt     = "return" expression ";" .
 struct_decl     = ident ":" struct_type ";" .
 enum_decl       = ident ":" enum_type ";" .
 
-if_stmt         = "if" expression block [ "else" block ] . 
+if_stmt         = "if" expression block [ "else" block ] .
 block           = "{" {statement} "}" .
 
 match_stmt      = "match" expression "{" match_arm { match_arm } "}" .
@@ -50,8 +50,8 @@ struct_pattern  = "struct" "{" field_pattern { "," field_pattern } "}" .
 field_pattern   = ident ":" pattern .
 variant_pattern = ident "(" pattern { "," pattern } ")" .
 
-while_loop      = "while" expression block . 
-for_loop        = "for" ident "in" expression block . 
+while_loop      = "while" expression block .
+for_loop        = "for" ident "in" expression block .
 
 expression      = term { ("+" | "-") term } .
 term            = factor { ("*" | "/") factor } .
@@ -59,14 +59,17 @@ factor          = literal
                 | ident
                 | list
                 | lambda
+                | if_stmt // TODO: Make if_stmt an if_expression instead and remove from expressions?
                 | function_call
+                | list_access
                 | "(" expression ")" .
 
-literal         = integer | float | string | "true" | "false" . 
+literal         = integer | float | string | "true" | "false" .
 
 list            = "[" [ expression { "," expression } ] "]" .
-lambda          = "\"" ident { ident } "." expression . 
+lambda          = "\"" ident { ident } "." expression .
 function_call   = ident "(" arglist ")" .
+list_access     = ident "[" expression "]" .
 
 function_def    = "func" ident "(" typed-arglist ")" [ ":" type-annotation ] "{" {statement} "}" .
 
@@ -81,30 +84,30 @@ type-annotation = function_type
                 | type-ident
                 | "(" type-annotation ")" .
 
-function_type   = type-ident "->" type-annotation . 
+function_type   = type-ident "->" type-annotation .
 array_type      = "[" type-annotation "]" .
 struct_type     = "struct" "{" field { "," field } "}" .
 enum_type       = "enum" "{" variant { "," variant } "}" .
-field           = ident ":" type-annotation . 
+field           = ident ":" type-annotation .
 variant         = ident [ "(" type-annotation { "," type-annotation } ")" ] .
 
-type-ident      = primitive_type | ident . 
-primitive_type  = "int" | "str" | "float" | "bool" | "unit" . 
+type-ident      = primitive_type | ident .
+primitive_type  = "int" | "str" | "float" | "bool" | "unit" .
 
-ident           = letter { letter | digit | "_" } . 
-letter          = "a"..."z" | "A"..."Z" . 
-digit           = "0"..."9" . 
+ident           = letter { letter | digit | "_" } .
+letter          = "a"..."z" | "A"..."Z" .
+digit           = "0"..."9" .
 
-integer         = digit {digit} . 
-float           = digit {digit} "." digit {digit} [ exponent ] . 
-exponent        = ("e" | "E") ["+" | "-"] digit {digit} . 
+integer         = digit {digit} .
+float           = digit {digit} "." digit {digit} [ exponent ] .
+exponent        = ("e" | "E") ["+" | "-"] digit {digit} .
 
-string          = '"' { char } '"' . 
-char            = ? any character except ", \, and newline ? | escape_seq . 
-escape_seq      = "\" ( '"' | '\\' | "n" | "t" | "r" ) . 
+string          = '"' { char } '"' .
+char            = ? any character except ", \, and newline ? | escape_seq .
+escape_seq      = "\" ( '"' | '\\' | "n" | "t" | "r" ) .
 
-comment         = "#" { ? any character except newline ? } "\n" . 
-whitespace      = " " | "\t" | "\n" | "\r" . 
+comment         = "#" { ? any character except newline ? } "\n" .
+whitespace      = " " | "\t" | "\n" | "\r" .
 ```
 
 ### Lexer Precedence
@@ -123,10 +126,10 @@ y = 20;
 y : int = 20;  # Type annotations can be inlined
 
 # Lists
-z : [str] = ["John", "Smith"];  
+z : [str] = ["John", "Smith"];
 
 # Lambda expressions
-f : int -> int = \x. x + 5;   
+f : int -> int = \x. x + 5;
 
 # Recursive functions
 func fib(n: int) : int {
