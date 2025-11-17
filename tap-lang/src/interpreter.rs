@@ -1,7 +1,10 @@
 use crate::ast::{Expression, FunctionDef, LiteralValue, Operator, Program, Statement};
 use crate::environment::Environment;
+use crate::utils::gensym;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
+use std::rc::Rc;
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -34,12 +37,19 @@ pub struct EnumVariant {
     pub variant_name: String,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Closure {
+    pub definition: Rc<FunctionDef>,
+    pub env: Rc<RefCell<Environment>>,
+}
+
 /// Represents a runtime value in the language.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Integer(i64),
     String(String),
     Function(FunctionDef),
+    Closure(Closure),
     Lambda(Lambda),
     Struct(Struct),
     StructInstance(StructInstance),
@@ -56,6 +66,13 @@ impl fmt::Display for Value {
             Value::Integer(val) => write!(f, "{} : int", val),
             Value::String(val) => write!(f, "{} : string", val),
             Value::Function(def) => write!(f, "{} ({}) {{}}", def.name, def.args.join(", ")),
+            Value::Closure(closure) => write!(
+                f,
+                "<closure {} ({}) {{}} with env {:?}>",
+                closure.definition.name,
+                closure.definition.args.join(", "),
+                closure.env
+            ),
             Value::Lambda(_) => write!(f, "<lambda>"),
             Value::Struct(s) => write!(f, "<struct {}>", s.name),
             Value::StructInstance(s) => write!(f, "<instance of {}>", s.name),
@@ -95,19 +112,19 @@ impl Interpreter {
     pub fn interpret(
         &self,
         program: &Program,
-        env: &mut Environment,
+        env: Rc<RefCell<Environment>>,
     ) -> Result<Option<Value>, RuntimeError> {
         let mut last_evaluated_value: Option<Value> = None;
         for statement in &program.statements {
             println!("Interpreting statement: {:?}", statement);
-            let statement_result = self.evaluate_statement(statement, env)?;
+            let statement_result = self.evaluate_statement(statement, &env)?;
             if statement_result.is_some() {
                 println!("Explicit return: {:?}", statement_result);
                 return Ok(statement_result); // Propagate explicit return
             }
             // If the statement was an expression, capture its value
             if let Statement::Expression(expr) = statement {
-                last_evaluated_value = Some(self.evaluate_expression(expr, env)?);
+                last_evaluated_value = Some(self.evaluate_expression(expr, &env)?);
                 println!(
                     "Last evaluated expression value: {:?}",
                     last_evaluated_value
@@ -121,7 +138,7 @@ impl Interpreter {
     fn evaluate_statement(
         &self,
         statement: &Statement,
-        env: &mut Environment,
+        env: &Rc<RefCell<Environment>>,
     ) -> Result<Option<Value>, RuntimeError> {
         match statement {
             Statement::Expression(expr) => {
@@ -130,29 +147,34 @@ impl Interpreter {
             }
             Statement::Assignment { name, value } => {
                 let value = self.evaluate_expression(value, env)?;
-                env.set(name.clone(), value.clone());
+                env.borrow_mut().set(name.clone(), value);
                 Ok(None)
             }
             Statement::VarDecl { name, .. } => {
-                env.set(name.clone(), Value::Null);
+                env.borrow_mut().set(name.clone(), Value::Null);
                 Ok(None)
             }
             Statement::FunctionDef(def) => {
-                env.set(def.name.clone(), Value::Function(def.clone()));
+                let closure = Closure {
+                    definition: Rc::new(def.clone()),
+                    env: Rc::clone(env),
+                };
+                env.borrow_mut()
+                    .set(def.name.clone(), Value::Closure(closure));
                 Ok(None)
             }
             Statement::StructDecl(decl) => {
                 let name = decl.name.clone();
                 let fields = decl.fields.iter().map(|(name, _)| name.clone()).collect();
                 let struct_val = Value::Struct(Struct { name, fields });
-                env.set(decl.name.clone(), struct_val);
+                env.borrow_mut().set(decl.name.clone(), struct_val);
                 Ok(None)
             }
             Statement::EnumDecl(decl) => {
                 let name = decl.name.clone();
                 let variants = decl.variants.clone();
                 let enum_val = Value::Enum(Enum { name, variants });
-                env.set(decl.name.clone(), enum_val);
+                env.borrow_mut().set(decl.name.clone(), enum_val);
                 Ok(None)
             }
             Statement::If {
@@ -191,12 +213,10 @@ impl Interpreter {
                 property,
                 value,
             } => {
-                // This approach requires the object being assigned to be a simple variable name.
                 let object_name = if let Expression::Identifier(name) = object {
                     name
                 } else {
                     return Err(RuntimeError::TypeError(
-                        // Assuming you have a RuntimeError variant
                         "Cannot assign to property of a non-variable.".to_string(),
                     ));
                 };
@@ -205,9 +225,9 @@ impl Interpreter {
 
                 // 1. Get a COPY of the struct instance from the environment.
                 let object_val = env
+                    .borrow()
                     .get(object_name)
-                    .ok_or_else(|| RuntimeError::UndefinedVariable(object_name.clone()))?
-                    .clone();
+                    .ok_or_else(|| RuntimeError::UndefinedVariable(object_name.clone()))?;
 
                 if let Value::StructInstance(mut instance) = object_val {
                     // 2. MUTATE THE LOCAL COPY
@@ -221,7 +241,8 @@ impl Interpreter {
                     }
 
                     // 3. UPDATE THE ENVIRONMENT with the new, mutated copy.
-                    env.set(object_name.clone(), Value::StructInstance(instance));
+                    env.borrow_mut()
+                        .set(object_name.clone(), Value::StructInstance(instance));
                     Ok(None)
                 } else {
                     Err(RuntimeError::TypeError(
@@ -235,13 +256,13 @@ impl Interpreter {
     fn evaluate_expression(
         &self,
         expr: &Expression,
-        env: &mut Environment,
+        env: &Rc<RefCell<Environment>>,
     ) -> Result<Value, RuntimeError> {
         match expr {
             Expression::Literal(literal) => Ok(self.evaluate_literal(literal)),
             Expression::Identifier(name) => env
+                .borrow()
                 .get(name)
-                .cloned()
                 .ok_or_else(|| RuntimeError::UndefinedVariable(name.clone())),
             Expression::Binary { left, op, right } => {
                 let left = self.evaluate_expression(left, env)?;
@@ -253,7 +274,9 @@ impl Interpreter {
 
                 match function {
                     Value::Function(def) => {
-                        let mut func_env = Environment::new_enclosed(env);
+                        let call_env =
+                            Rc::new(RefCell::new(Environment::new_enclosed(Rc::clone(env))));
+
                         if def.args.len() != args.len() {
                             return Err(RuntimeError::TypeError(format!(
                                 "Expected {} arguments but got {}",
@@ -261,24 +284,27 @@ impl Interpreter {
                                 args.len()
                             )));
                         }
+
                         for (param, arg) in def.args.iter().zip(args) {
                             let arg_val = self.evaluate_expression(arg, env)?;
-                            func_env.set(param.clone(), arg_val);
+                            call_env.borrow_mut().set(param.clone(), arg_val);
                         }
 
                         let mut result = Value::Null;
                         for statement in &def.body {
                             if let Some(returned_value) =
-                                self.evaluate_statement(statement, &mut func_env)?
+                                self.evaluate_statement(statement, &call_env)?
                             {
                                 result = returned_value;
-                                break; // Exit loop on first return
+                                break;
                             }
                         }
                         Ok(result)
                     }
                     Value::Lambda(lambda) => {
-                        let mut lambda_env = Environment::new_enclosed(env);
+                        let lambda_env =
+                            Rc::new(RefCell::new(Environment::new_enclosed(Rc::clone(env))));
+
                         if lambda.args.len() != args.len() {
                             return Err(RuntimeError::TypeError(format!(
                                 "Expected {} arguments but got {}",
@@ -286,12 +312,43 @@ impl Interpreter {
                                 args.len()
                             )));
                         }
+
                         for (param, arg) in lambda.args.iter().zip(args) {
                             let arg_val = self.evaluate_expression(arg, env)?;
-                            lambda_env.set(param.clone(), arg_val);
+                            lambda_env.borrow_mut().set(param.clone(), arg_val);
                         }
 
-                        self.evaluate_expression(&lambda.body, &mut lambda_env)
+                        self.evaluate_expression(&lambda.body, &lambda_env)
+                    }
+                    Value::Closure(closure) => {
+                        let call_env = Rc::new(RefCell::new(Environment::new_enclosed(Rc::clone(
+                            &closure.env,
+                        ))));
+
+                        let def = &closure.definition;
+                        if def.args.len() != args.len() {
+                            return Err(RuntimeError::TypeError(format!(
+                                "Expected {} arguments but got {}",
+                                def.args.len(),
+                                args.len()
+                            )));
+                        }
+
+                        for (param, arg) in def.args.iter().zip(args) {
+                            let arg_val = self.evaluate_expression(arg, env)?;
+                            call_env.borrow_mut().set(param.clone(), arg_val);
+                        }
+
+                        let mut result = Value::Null;
+                        for statement in &def.body {
+                            if let Some(returned_value) =
+                                self.evaluate_statement(statement, &call_env)?
+                            {
+                                result = returned_value;
+                                break;
+                            }
+                        }
+                        Ok(result)
                     }
                     _ => Err(RuntimeError::TypeError(format!(
                         "{:?} is not a function",
@@ -299,14 +356,23 @@ impl Interpreter {
                     ))),
                 }
             }
-            Expression::Lambda { args, body } => Ok(Value::Lambda(Lambda {
-                args: args.clone(),
-                body: body.clone(),
-            })),
+            Expression::Lambda { args, body } => {
+                let func_def = FunctionDef {
+                    name: gensym("lambda"),
+                    args: args.clone(),
+                    body: vec![Statement::Return(*body.clone())],
+                };
+
+                let closure = Closure {
+                    definition: Rc::new(func_def),
+                    env: Rc::clone(env),
+                };
+                Ok(Value::Closure(closure))
+            }
             Expression::StructInstantiation { name, fields } => {
                 let struct_val = env
+                    .borrow()
                     .get(name)
-                    .cloned()
                     .ok_or_else(|| RuntimeError::TypeError(format!("{} is not a struct", name)))?;
 
                 if let Value::Struct(_struct_def) = struct_val {
@@ -340,7 +406,7 @@ impl Interpreter {
                 if parts.len() == 2 {
                     let enum_name = &parts[0];
                     let variant_name = &parts[1];
-                    let enum_val = env.get(enum_name).cloned().ok_or_else(|| {
+                    let enum_val = env.borrow().get(enum_name).ok_or_else(|| {
                         RuntimeError::TypeError(format!("{} is not an enum", enum_name))
                     })?;
 
@@ -380,7 +446,7 @@ impl Interpreter {
                         for statement in then_branch {
                             if let Some(returned_value) = self.evaluate_statement(statement, env)? {
                                 result = returned_value;
-                                break; // Exit loop on first return
+                                break;
                             }
                         }
                         Ok(result)
@@ -389,7 +455,7 @@ impl Interpreter {
                         for statement in else_branch {
                             if let Some(returned_value) = self.evaluate_statement(statement, env)? {
                                 result = returned_value;
-                                break; // Exit loop on first return
+                                break;
                             }
                         }
                         Ok(result)
@@ -414,7 +480,7 @@ impl Interpreter {
                 enum_name,
                 variant_name,
             } => {
-                let enum_val = env.get(enum_name).cloned().ok_or_else(|| {
+                let enum_val = env.borrow().get(enum_name).ok_or_else(|| {
                     RuntimeError::TypeError(format!("{} is not an enum", enum_name))
                 })?;
 
@@ -537,8 +603,8 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         let program = parser.parse_program().unwrap();
         let interpreter = Interpreter::new();
-        let mut env = Environment::new();
-        interpreter.interpret(&program, &mut env)
+        let env = Rc::new(RefCell::new(Environment::new()));
+        interpreter.interpret(&program, env)
     }
 
     #[test]

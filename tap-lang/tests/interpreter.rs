@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+use std::rc::Rc;
 use tap_lang::environment::Environment;
 use tap_lang::interpreter::{Interpreter, Value};
 use tap_lang::lexer::Lexer;
@@ -27,16 +29,14 @@ fn eval_source(source: &str) -> Option<Value> {
     });
 
     let interpreter = Interpreter::new();
-    let mut env = Environment::new();
-    interpreter
-        .interpret(&program, &mut env)
-        .unwrap_or_else(|e| {
-            panic!(
-                "Interpretation failed for source:\n{}\nRuntime Error: {}",
-                source.trim(),
-                e
-            );
-        })
+    let env = Rc::new(RefCell::new(Environment::new()));
+    interpreter.interpret(&program, env).unwrap_or_else(|e| {
+        panic!(
+            "Interpretation failed for source:\n{}\nRuntime Error: {}",
+            source.trim(),
+            e
+        );
+    })
 }
 
 /// Helper for tests that are expected to fail at runtime.
@@ -46,8 +46,8 @@ fn expect_runtime_error(source: &str) {
     let mut parser = Parser::new(&tokens);
     let program = parser.parse_program().unwrap();
     let interpreter = Interpreter::new();
-    let mut env = Environment::new();
-    let result = interpreter.interpret(&program, &mut env);
+    let env = Rc::new(RefCell::new(Environment::new()));
+    let result = interpreter.interpret(&program, env);
     assert!(
         result.is_err(),
         "Expected a runtime error, but execution succeeded for source:\n{}",
@@ -237,7 +237,6 @@ fn test_enum_variant_creation() {
         c;
     "#;
     let result = eval_source(source).unwrap();
-    // **FIXED**: Correctly destructure the wrapped EnumVariant struct
     if let Value::EnumVariant(variant) = result {
         assert_eq!(variant.enum_name, "Color");
         assert_eq!(variant.variant_name, "Red");
@@ -255,7 +254,6 @@ fn test_struct_with_enum_field() {
         u.status;
     "#;
     let result = eval_source(source).unwrap();
-    // **FIXED**: Correctly destructure the wrapped EnumVariant struct
     if let Value::EnumVariant(variant) = result {
         assert_eq!(variant.enum_name, "Status");
         assert_eq!(variant.variant_name, "Active");

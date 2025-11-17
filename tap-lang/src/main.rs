@@ -6,8 +6,10 @@ use lexer::Lexer;
 use parser::Parser;
 use rustyline::Editor;
 use rustyline::error::ReadlineError;
+use std::cell::RefCell;
 use std::env;
 use std::fs;
+use std::rc::Rc;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -31,7 +33,7 @@ fn run_file(path: &str) {
 fn run_prompt() {
     let mut rl = Editor::<()>::new().unwrap();
     let interpreter = Interpreter::new();
-    let mut env = Environment::new();
+    let env = Rc::new(RefCell::new(Environment::new()));
 
     loop {
         let readline = rl.readline(">> ");
@@ -41,7 +43,7 @@ fn run_prompt() {
                 if line.trim() == "exit" {
                     break;
                 }
-                run_with_interpreter(&line, &interpreter, &mut env);
+                run_with_interpreter(&line, &interpreter, Rc::clone(&env));
             }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");
@@ -61,11 +63,11 @@ fn run_prompt() {
 
 fn run(source: &str) {
     let interpreter = Interpreter::new();
-    let mut env = Environment::new();
-    run_with_interpreter(source, &interpreter, &mut env);
+    let env = Rc::new(RefCell::new(Environment::new()));
+    run_with_interpreter(source, &interpreter, env);
 }
 
-fn run_with_interpreter(source: &str, interpreter: &Interpreter, env: &mut Environment) {
+fn run_with_interpreter(source: &str, interpreter: &Interpreter, env: Rc<RefCell<Environment>>) {
     let tokens = match Lexer::new(source).tokenize() {
         Ok(tokens) => tokens,
         Err(err) => {
@@ -93,7 +95,7 @@ fn run_with_interpreter(source: &str, interpreter: &Interpreter, env: &mut Envir
             // Do nothing if no value is returned (e.g., a statement that doesn't produce a value)
         }
         Err(err) => {
-            eprintln!("Runtime Error: {:?}", err);
+            eprintln!("Runtime Error: {}", err);
         }
     }
 }
