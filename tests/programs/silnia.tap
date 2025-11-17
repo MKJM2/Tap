@@ -1,0 +1,8 @@
+funkcja silnia(n)  {
+    jeśli n == 0 {
+        zwróć 1;
+    }
+    zwróć n * silnia(n - 1);
+}
+
+silnia(5);  # 5! = 120

@@ -97,6 +97,7 @@ impl Token {
 /// The lexer, responsible for turning a source string into a vector of tokens.
 pub struct Lexer<'a> {
     source: &'a str,
+    chars: Vec<char>,
     tokens: Vec<Token>,
     start: usize,
     current: usize,
@@ -108,6 +109,7 @@ impl<'a> Lexer<'a> {
     pub fn new(source: &'a str) -> Self {
         Lexer {
             source,
+            chars: source.chars().collect(),
             tokens: Vec::new(),
             start: 0,
             current: 0,
@@ -128,7 +130,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn is_at_end(&self) -> bool {
-        self.current >= self.source.len()
+        self.current >= self.chars.len()
     }
 
     fn scan_token(&mut self) -> Result<(), String> {
@@ -272,21 +274,21 @@ impl<'a> Lexer<'a> {
     }
 
     fn advance(&mut self) -> char {
+        let c = self.chars[self.current];
         self.current += 1;
-        self.source.chars().nth(self.current - 1).unwrap()
+        c
     }
 
     fn add_token(&mut self, token_type: TokenType) {
-        let text = &self.source[self.start..self.current];
-        self.tokens
-            .push(Token::new(token_type, text.to_string(), self.line));
+        let text: String = self.chars[self.start..self.current].iter().collect();
+        self.tokens.push(Token::new(token_type, text, self.line));
     }
 
     fn match_char(&mut self, expected: char) -> bool {
         if self.is_at_end() {
             return false;
         }
-        if self.source.chars().nth(self.current).unwrap() != expected {
+        if self.chars[self.current] != expected {
             return false;
         }
         self.current += 1;
@@ -297,7 +299,7 @@ impl<'a> Lexer<'a> {
         if self.is_at_end() {
             return '\0';
         }
-        self.source.chars().nth(self.current).unwrap()
+        self.chars[self.current]
     }
 
     fn string(&mut self) -> Result<(), String> {
@@ -314,7 +316,9 @@ impl<'a> Lexer<'a> {
 
         self.advance(); // The closing ".
 
-        let value = self.source[self.start + 1..self.current - 1].to_string();
+        let value = self.chars[self.start + 1..self.current - 1]
+            .iter()
+            .collect();
         self.add_token(TokenType::String(value));
         Ok(())
     }
@@ -323,8 +327,8 @@ impl<'a> Lexer<'a> {
         while self.peek().is_digit(10) {
             self.advance();
         }
-
-        let value: i64 = self.source[self.start..self.current].parse().unwrap();
+        let value_str: String = self.chars[self.start..self.current].iter().collect();
+        let value: i64 = value_str.parse().unwrap();
         self.add_token(TokenType::Integer(value));
     }
 
@@ -333,8 +337,8 @@ impl<'a> Lexer<'a> {
             self.advance();
         }
 
-        let text = &self.source[self.start..self.current];
-        let token_type = match text {
+        let text: String = self.chars[self.start..self.current].iter().collect();
+        let token_type = match text.as_str() {
             "int" | "całkowita" => TokenType::KeywordInt,
             "str" | "tekst" => TokenType::KeywordStr,
             "func" | "funkcja" => TokenType::KeywordFunc,
