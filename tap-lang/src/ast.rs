@@ -54,7 +54,8 @@ pub enum Statement {
         else_branch: Option<Vec<Statement>>,
     },
     Return(Expression),
-    // ...
+    Break,
+    Continue,
 }
 
 /// Represents a struct definition.

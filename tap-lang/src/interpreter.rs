@@ -97,6 +97,11 @@ pub enum RuntimeError {
     InvalidAccess(String),
     #[error("Type error: {0}")]
     TypeError(String),
+    // Hacky but works for control-flow
+    #[error("break")]
+    Break,
+    #[error("continue")]
+    Continue,
 }
 
 /// The interpreter, responsible for evaluating the AST.
@@ -250,6 +255,8 @@ impl Interpreter {
                     ))
                 }
             }
+            Statement::Break => Err(RuntimeError::Break),
+            Statement::Continue => Err(RuntimeError::Continue),
         }
     }
 

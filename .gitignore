@@ -43,3 +43,6 @@ CMakeUserPresets.jsonc
 .ccls-cache
 .cache
 .ninja
+
+target/
+debug/

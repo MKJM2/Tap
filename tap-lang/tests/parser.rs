@@ -302,16 +302,6 @@ fn test_parse_enum_declaration() {
     }
 }
 
-// NOTE: The current parser only supports simple enum variants (identifiers).
-// This test is a placeholder for when it supports variants with associated data.
-#[test]
-#[ignore]
-fn test_parse_enum_declaration_with_data() {
-    let program = parse_test_source("Option : enum { Some(int), None };");
-    assert_eq!(program.statements.len(), 1);
-    // Add assertions here when the parser is updated.
-}
-
 // --- FUTURE FEATURE TESTS (IGNORED) ---
 
 #[test]
