@@ -5,4 +5,4 @@ funkcja silnia(n)  {
     zwróć n * silnia(n - 1);
 }
 
-silnia(5);  # 5! = 120
+silnia(5) == 120;

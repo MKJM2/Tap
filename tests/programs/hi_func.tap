@@ -1,0 +1,7 @@
+func multiply(a, b) {
+    return a * b;
+}
+
+double: int -> int;
+double = \x. multiply(x, 2);
+double(6) == 12;

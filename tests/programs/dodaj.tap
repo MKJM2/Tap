@@ -1,0 +1,5 @@
+funkcja dodaj(a, b) {
+    zwróć a + b;
+}
+
+dodaj(4, 5) == 9;
