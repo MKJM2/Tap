@@ -45,6 +45,9 @@ impl<'a> Parser<'a> {
     pub fn parse_program(&mut self) -> eyre::Result<Program> {
         let mut statements = Vec::new();
         while !self.is_at_end() {
+            if self.match_token(&TokenType::Semicolon) {
+                continue;
+            }
             statements.push(
                 self.parse_statement()
                     .wrap_err("Failed to parse top-level statement")?,
@@ -56,10 +59,26 @@ impl<'a> Parser<'a> {
     // --- Statement Parsing ---
 
     fn parse_statement(&mut self) -> eyre::Result<Statement> {
-        if self.match_token(&TokenType::KeywordIf) {
+        if self.match_token(&TokenType::KeywordType) {
             return self
-                .parse_if_statement()
-                .wrap_err("Failed to parse if-statement");
+                .parse_type_declaration()
+                .wrap_err("Failed to parse type declaration");
+        }
+        if self.match_token(&TokenType::KeywordBreak) {
+            self.consume(&TokenType::Semicolon, "break statement", "';'")?;
+            return Ok(Statement::Break);
+        }
+        if self.match_token(&TokenType::KeywordContinue) {
+            self.consume(&TokenType::Semicolon, "continue statement", "';'")?;
+            return Ok(Statement::Continue);
+        }
+        if self.check(&TokenType::KeywordIf) {
+            let if_expr = self.parse_if_expression()?;
+            return Ok(Statement::Expression(if_expr));
+        }
+        if self.check(&TokenType::KeywordMatch) {
+            let match_expr = self.parse_match_expression()?;
+            return Ok(Statement::Expression(match_expr));
         }
         if self.match_token(&TokenType::KeywordFunc) {
             return self
@@ -79,11 +98,6 @@ impl<'a> Parser<'a> {
         if self.match_token(&TokenType::KeywordFor) {
             return self.parse_for_loop().wrap_err("Failed to parse for loop");
         }
-        if self.match_token(&TokenType::KeywordMatch) {
-            return self
-                .parse_match_statement()
-                .wrap_err("Failed to parse match statement");
-        }
 
         // Declaration vs Assignment/Expression
         if self.check(&TokenType::Identifier) && self.peek_next_is(&TokenType::Colon) {
@@ -92,6 +106,25 @@ impl<'a> Parser<'a> {
         } else {
             self.parse_expression_or_assignment_statement()
                 .wrap_err("Failed to parse expression or assignment statement")
+        }
+    }
+
+    fn parse_type_declaration(&mut self) -> eyre::Result<Statement> {
+        let name = self
+            .consume(&TokenType::Identifier, "type declaration", "type name")?
+            .lexeme
+            .clone();
+        self.consume(&TokenType::Assign, "type declaration", "'='")?;
+
+        if self.match_token(&TokenType::KeywordStruct) {
+            self.parse_struct_declaration_after_name(name)
+        } else if self.match_token(&TokenType::KeywordEnum) {
+            self.parse_enum_declaration_after_name(name)
+        } else {
+            Err(self.unexpected_token(
+                "type declaration",
+                "'struct' or 'enum'",
+            ))
         }
     }
 
@@ -166,6 +199,14 @@ impl<'a> Parser<'a> {
             }
         }
 
+        if self.check(&TokenType::CloseBrace) {
+            return Ok(Statement::Expression(expr));
+        }
+
+        if self.is_at_end() {
+            return Ok(Statement::Expression(expr));
+        }
+
         self.consume(&TokenType::Semicolon, "expression statement", "';'")?;
         Ok(Statement::Expression(expr))
     }
@@ -198,8 +239,8 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_match_statement(&mut self) -> eyre::Result<Statement> {
-        // "match" already consumed
+    fn parse_match_expression(&mut self) -> eyre::Result<Expression> {
+        self.consume(&TokenType::KeywordMatch, "match statement", "'match'")?;
         let value = self.parse_expression()?;
         self.consume(&TokenType::OpenBrace, "match statement", "'{'")?;
 
@@ -219,7 +260,7 @@ impl<'a> Parser<'a> {
         }
         self.consume(&TokenType::CloseBrace, "match statement", "'}'")?;
 
-        Ok(Statement::Match {
+        Ok(Expression::Match {
             value: Box::new(value),
             arms,
         })
@@ -243,18 +284,36 @@ impl<'a> Parser<'a> {
                 }
                 TokenType::Identifier => {
                     let name = self.advance().lexeme.clone();
-                    // Check for Enum variant pattern: MyEnum::Variant(x)
-                    if self.match_token(&TokenType::ColonColon) {
+                    // Check for Enum variant pattern: MyEnum::Variant(x) or Some(x)
+                    if self.match_token(&TokenType::OpenParen) {
+                        let mut sub_patterns = Vec::new();
+                        if !self.check(&TokenType::CloseParen) {
+                            loop {
+                                sub_patterns.push(self.parse_pattern()?);
+                                if !self.match_token(&TokenType::Comma) {
+                                    break;
+                                }
+                            }
+                        }
+                        self.consume(&TokenType::CloseParen, "pattern", "')'")?;
+                        Ok(Pattern::EnumVariant {
+                            enum_name: "".to_string(), // enum name is unknown here
+                            variant: name,
+                            vars: sub_patterns,
+                        })
+                    } else if self.match_token(&TokenType::ColonColon) {
                         let variant = self
                             .consume(&TokenType::Identifier, "pattern", "variant name")?
                             .lexeme
                             .clone();
                         let mut sub_patterns = Vec::new();
                         if self.match_token(&TokenType::OpenParen) {
-                            loop {
-                                sub_patterns.push(self.parse_pattern()?);
-                                if !self.match_token(&TokenType::Comma) {
-                                    break;
+                            if !self.check(&TokenType::CloseParen) {
+                                loop {
+                                    sub_patterns.push(self.parse_pattern()?);
+                                    if !self.match_token(&TokenType::Comma) {
+                                        break;
+                                    }
                                 }
                             }
                             self.consume(&TokenType::CloseParen, "pattern", "')'")?;
@@ -274,21 +333,6 @@ impl<'a> Parser<'a> {
         } else {
             Err(self.unexpected_token("pattern", "literal, identifier, or '_'"))
         }
-    }
-
-    fn parse_if_statement(&mut self) -> eyre::Result<Statement> {
-        let condition = self.parse_expression()?;
-        let then_branch = self.parse_block()?;
-        let else_branch = if self.match_token(&TokenType::KeywordElse) {
-            Some(self.parse_block()?)
-        } else {
-            None
-        };
-        Ok(Statement::If {
-            condition: Box::new(condition),
-            then_branch,
-            else_branch,
-        })
     }
 
     fn parse_return_statement(&mut self) -> eyre::Result<Statement> {
@@ -318,11 +362,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_logic_or(&mut self) -> eyre::Result<Expression> {
-        self.parse_binary_expr(Self::parse_logic_and, &[TokenType::OpOr])
+        self.parse_binary_expr(Self::parse_logic_and, &[TokenType::OpLor])
     }
 
     fn parse_logic_and(&mut self) -> eyre::Result<Expression> {
-        self.parse_binary_expr(Self::parse_equality, &[TokenType::OpAnd])
+        self.parse_binary_expr(Self::parse_equality, &[TokenType::OpLand])
     }
 
     fn parse_equality(&mut self) -> eyre::Result<Expression> {
@@ -437,7 +481,10 @@ impl<'a> Parser<'a> {
             }
             TokenType::Identifier => {
                 // Lookahead for Struct Instantiation or Enum::Variant
-                if self.peek_next_is(&TokenType::OpenBrace) {
+                let token = self.peek().unwrap();
+                if self.peek_next_is(&TokenType::OpenBrace)
+                    && self.type_context.contains(&token.lexeme)
+                {
                     self.parse_struct_instantiation()
                 } else if self.peek_next_is(&TokenType::ColonColon) {
                     let enum_name = self.advance().lexeme.clone();
@@ -464,11 +511,18 @@ impl<'a> Parser<'a> {
             TokenType::OpenBracket => self.parse_list_literal(),
             TokenType::Lambda => self.parse_lambda_expression(),
             TokenType::KeywordIf => self.parse_if_expression(),
+            TokenType::KeywordMatch => self.parse_match_expression(),
+            TokenType::OpenBrace => self.parse_block_expression(),
             _ => Err(self.unexpected_token("expression", "literal, identifier, or '('")),
         }
     }
 
     // --- Helpers for complex expressions ---
+
+    fn parse_block_expression(&mut self) -> eyre::Result<Expression> {
+        let statements = self.parse_block()?;
+        Ok(Expression::Block(statements))
+    }
 
     fn parse_binary_expr<F>(
         &mut self,
@@ -625,7 +679,7 @@ impl<'a> Parser<'a> {
         self.consume(&TokenType::CloseParen, "func", "')'")?;
 
         // Optional return type
-        if self.match_token(&TokenType::Colon) {
+        if self.match_token(&TokenType::Arrow) {
             self.parse_type_annotation()?;
         }
 
@@ -670,11 +724,27 @@ impl<'a> Parser<'a> {
         let mut variants = Vec::new();
         if !self.check(&TokenType::CloseBrace) {
             loop {
-                variants.push(
-                    self.consume(&TokenType::Identifier, "variant", "name")?
-                        .lexeme
-                        .clone(),
-                );
+                let variant_name = self
+                    .consume(&TokenType::Identifier, "variant", "name")?
+                    .lexeme
+                    .clone();
+
+                let mut types = Vec::new();
+                if self.match_token(&TokenType::OpenParen) {
+                    loop {
+                        types.push(self.parse_type_annotation()?);
+                        if !self.match_token(&TokenType::Comma) {
+                            break;
+                        }
+                    }
+                    self.consume(&TokenType::CloseParen, "enum variant", "')'")?;
+                }
+
+                variants.push(crate::ast::EnumVariant {
+                    name: variant_name,
+                    types,
+                });
+
                 if !self.match_token(&TokenType::Comma) {
                     break;
                 }
@@ -822,8 +892,8 @@ impl TryFrom<&TokenType> for Operator {
             TokenType::GreaterThanEqual => Ok(Operator::GreaterThanEqual),
             TokenType::LessThan => Ok(Operator::LessThan),
             TokenType::LessThanEqual => Ok(Operator::LessThanEqual),
-            TokenType::OpAnd => Ok(Operator::And),
-            TokenType::OpOr => Ok(Operator::Or),
+            TokenType::OpLand => Ok(Operator::And),
+            TokenType::OpLor => Ok(Operator::Or),
             TokenType::Bang => Ok(Operator::Not),
             _ => Err(eyre!("Cannot convert {:?} to a binary operator", value)),
         }

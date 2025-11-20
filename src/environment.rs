@@ -39,8 +39,24 @@ impl Environment {
         }
     }
 
-    /// Sets a value in the environment.
-    pub fn set(&mut self, name: String, value: Value) {
+    pub fn define(&mut self, name: String, value: Value) {
         self.store.insert(name, value);
+    }
+
+    /// Sets a value in the environment, traversing up to parent scopes.
+    pub fn set(&mut self, name: String, value: Value) {
+        if self.store.contains_key(&name) {
+            self.store.insert(name, value);
+            return;
+        }
+
+        if let Some(parent_rc) = &self.parent {
+            parent_rc.borrow_mut().set(name, value);
+        } else {
+            // If it doesn't exist in any scope, define it in the current one.
+            // This is wrong for assignment, but the parser should prevent this.
+            // For now, we will allow it to create a global.
+            self.store.insert(name, value);
+        }
     }
 }

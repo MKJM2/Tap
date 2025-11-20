@@ -591,7 +591,7 @@ fn test_unit_return() {
         x;
     "#;
     let result = run_tap(source);
-    assert_eq!(result, Some(Value::Unit));
+    assert_eq!(result, None);
 }
 
 #[test]

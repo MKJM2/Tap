@@ -55,11 +55,6 @@ pub enum Statement {
     FunctionDef(FunctionDef),
     StructDecl(StructDecl),
     EnumDecl(EnumDecl),
-    If {
-        condition: Box<Expression>,
-        then_branch: Vec<Statement>,
-        else_branch: Option<Vec<Statement>>,
-    },
     // New: Control Flow
     While {
         condition: Box<Expression>,
@@ -69,10 +64,6 @@ pub enum Statement {
         iterator: String,
         iterable: Box<Expression>,
         body: Vec<Statement>,
-    },
-    Match {
-        value: Box<Expression>,
-        arms: Vec<MatchArm>,
     },
     // Updated: Return is now optional (void returns)
     Return(Option<Expression>),
@@ -100,7 +91,11 @@ pub enum Pattern {
     },
 }
 
-// --- Definitions ---
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumVariant {
+    pub name: String,
+    pub types: Vec<TypeAnnotation>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructDecl {
@@ -111,7 +106,7 @@ pub struct StructDecl {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumDecl {
     pub name: String,
-    pub variants: Vec<String>,
+    pub variants: Vec<EnumVariant>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -168,6 +163,11 @@ pub enum Expression {
     ArrayAccess {
         array: Box<Expression>,
         index: Box<Expression>,
+    },
+    Block(Vec<Statement>),
+    Match {
+        value: Box<Expression>,
+        arms: Vec<MatchArm>,
     },
 }
 

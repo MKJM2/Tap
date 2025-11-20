@@ -70,6 +70,7 @@ pub enum TokenType {
     KeywordTrue,
     KeywordFalse,
     KeywordUnit, // Added
+    KeywordType,
     Unknown,
     EndOfFile,
 }
@@ -385,6 +386,7 @@ impl Lexer {
             "break" | "przerwij" => TokenType::KeywordBreak,
             "true" | "prawda" => TokenType::KeywordTrue,
             "false" | "fałsz" => TokenType::KeywordFalse,
+            "type" | "typ" => TokenType::KeywordType,
             _ => TokenType::Identifier,
         };
         self.add_token(token_type);
