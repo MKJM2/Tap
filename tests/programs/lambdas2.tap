@@ -1,0 +1,7 @@
+# A function that takes an int and a function(int -> int)
+func transform(val: int, op: int -> int) -> int {
+    op(val);
+}
+
+# Pass a lambda that squares the input
+transform(5, \x. x * x);

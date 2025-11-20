@@ -1,0 +1,15 @@
+func fib_iter(n: int) -> int {
+    a : int = 0;
+    b : int = 1;
+    count : int = 0;
+
+    while count < n {
+        temp : int = a;
+        a = b;
+        b = temp + b;
+        count = count + 1;
+    }
+    a;
+}
+
+fib_iter(10); # Should return 55

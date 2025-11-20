@@ -1,0 +1,15 @@
+type MaybeInt = enum { Some(int), None };
+
+func safe_div(a: int, b: int) -> MaybeInt {
+    if b == 0 {
+        MaybeInt::None
+    } else {
+        MaybeInt::Some(a / b)
+    }
+}
+
+# Pattern match to unwrap the value
+match safe_div(10, 2) {
+    Some(val) => val,
+    None => 0
+};

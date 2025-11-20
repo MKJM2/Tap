@@ -1,8 +1,9 @@
 # Tap
-An unremarkable but _Polished_ interpreted programming language. Originally built
-as a personal project to learn C++20 (+CMake & Gtest),
+
+An unremarkable but deliberately _Polished_ interpreted programming language. Originally built
+as a personal project to learn C++20 (CMake, Gtest, and other ritual sacrifices),
 it has since been rewritten in Rust (I like the convenience of match statements compared to std::visit (bleh)).
-Currently in ludicrous infancy. The goal is to solve all Advent of Code problems using Tap.
+Currently in infancy. The short term goal is to solve all Advent of Code problems using Tap. There is no long term goal.
 
 ## Current state of affairs:
 - Rust / C++ inspired syntax
@@ -10,7 +11,7 @@ Currently in ludicrous infancy. The goal is to solve all Advent of Code problems
 - rudimentary runtime type checking
 - hand rolled lexer & parser
 - basic closure & lexical scoping
-- **bilingual keywords** (English + Polish aliases for all keywords)
+- **bilingual keywords** (English + Polish aliases for all keywords) 🇵🇱
 
 ## but... why?
 Because I can. Also it's fun.

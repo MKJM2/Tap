@@ -1,0 +1,11 @@
+type Light = enum { Red, Yellow, Green };
+
+func action(l: Light) -> str {
+    match l {
+        Red => "Stop",
+        Yellow => "Caution",
+        Green => "Go"
+    }
+}
+
+action(Light::Yellow);

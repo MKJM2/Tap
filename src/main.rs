@@ -1,4 +1,4 @@
-use tap_lang::*;
+use tap::*;
 
 use environment::Environment;
 use interpreter::{Interpreter, Value};
@@ -11,12 +11,39 @@ use std::env;
 use std::fs;
 use std::rc::Rc;
 
+const VERSION: &str = "0.1.0";
+const AUTHOR: &str = "Michał Kurek";
+
+// ASCII logo banner
+fn print_banner() {
+    println!(
+        r#"████████╗ █████╗ ██████╗
+╚══██╔══╝██╔══██╗██╔══██╗
+   ██║   ███████║██████╔╝
+   ██║   ██╔══██║██╔═══╝
+   ██║   ██║  ██║██║
+   ╚═╝   ╚═╝  ╚═╝╚═╝
+
+Tap Language REPL
+Version: {version}
+Author:  {author}
+Type 'exit' to quit.
+"#,
+        version = VERSION,
+        author = AUTHOR,
+    );
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() > 2 {
-        println!("Usage: tap-lang [script]");
+        println!("Usage: tap [script]");
         return;
     }
+
+    color_eyre::install().unwrap_or(eprintln!(
+        "Failed to install color_eyre for enhanced error reporting."
+    ));
 
     if args.len() == 2 {
         run_file(&args[1]);
@@ -31,6 +58,8 @@ fn run_file(path: &str) {
 }
 
 fn run_prompt() {
+    print_banner(); // ← print the logo once here
+
     let mut rl = Editor::<()>::new().unwrap();
     let interpreter = Interpreter::new();
     let env = Rc::new(RefCell::new(Environment::new()));
@@ -76,7 +105,7 @@ fn run_with_interpreter(source: &str, interpreter: &Interpreter, env: Rc<RefCell
         }
     };
 
-    let mut parser = Parser::new(&tokens);
+    let mut parser = Parser::new(&tokens, source);
     let program = match parser.parse_program() {
         Ok(program) => program,
         Err(err) => {
@@ -91,9 +120,7 @@ fn run_with_interpreter(source: &str, interpreter: &Interpreter, env: Rc<RefCell
                 println!("{}", value);
             }
         }
-        Ok(None) => {
-            // Do nothing if no value is returned (e.g., a statement that doesn't produce a value)
-        }
+        Ok(None) => { /* no value to print */ }
         Err(err) => {
             eprintln!("Runtime Error: {}", err);
         }

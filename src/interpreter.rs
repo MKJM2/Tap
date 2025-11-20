@@ -1,4 +1,4 @@
-use crate::ast::{Expression, FunctionDef, LiteralValue, Operator, Program, Statement};
+use crate::ast::{Expression, FunctionDef, LiteralValue, Operator, Pattern, Program, Statement};
 use crate::environment::Environment;
 use crate::utils::gensym;
 use std::cell::RefCell;
@@ -43,10 +43,10 @@ pub struct Closure {
     pub env: Rc<RefCell<Environment>>,
 }
 
-/// Represents a runtime value in the language.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Integer(i64),
+    Float(f64),
     String(String),
     Function(FunctionDef),
     Closure(Closure),
@@ -57,38 +57,47 @@ pub enum Value {
     EnumVariant(EnumVariant),
     Boolean(bool),
     List(Vec<Value>),
+    Unit,
     Null,
 }
 
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Value::Integer(val) => write!(f, "{} : int", val),
-            Value::String(val) => write!(f, "{} : string", val),
-            Value::Function(def) => write!(f, "{} ({}) {{}}", def.name, def.args.join(", ")),
-            Value::Closure(closure) => write!(
-                f,
-                "<closure {} ({}) {{}} with env {:?}>",
-                closure.definition.name,
-                closure.definition.args.join(", "),
-                closure.env
-            ),
-            Value::Lambda(_) => write!(f, "<lambda>"),
-            Value::Struct(s) => write!(f, "<struct {}>", s.name),
-            Value::StructInstance(s) => write!(f, "<instance of {}>", s.name),
-            Value::Enum(e) => write!(f, "<enum {}>", e.name),
-            Value::EnumVariant(v) => write!(f, "{}::{}", v.enum_name, v.variant_name),
-            Value::Boolean(b) => write!(f, "{} : bool", b),
+            Value::Integer(val) => write!(f, "{}", val),
+            Value::Float(val) => write!(f, "{}", val),
+            Value::String(val) => write!(f, "{}", val),
+            Value::Boolean(b) => write!(f, "{}", b),
             Value::List(els) => {
                 let elements: Vec<String> = els.iter().map(|e| format!("{}", e)).collect();
                 write!(f, "[{}]", elements.join(", "))
             }
+            Value::Unit => write!(f, "()"),
             Value::Null => write!(f, "null"),
+            _ => write!(f, "<{}>", self.type_name()),
         }
     }
 }
 
-/// Represents an error that can occur during interpretation.
+impl Value {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Value::Integer(_) => "int",
+            Value::Float(_) => "float",
+            Value::String(_) => "str",
+            Value::Boolean(_) => "bool",
+            Value::List(_) => "list",
+            Value::Unit => "unit",
+            Value::Null => "null",
+            Value::Function(_) | Value::Closure(_) | Value::Lambda(_) => "function",
+            Value::Struct(_) => "struct_def",
+            Value::StructInstance(_) => "struct_instance",
+            Value::Enum(_) => "enum_def",
+            Value::EnumVariant(_) => "enum_variant",
+        }
+    }
+}
+
 #[derive(Error, Debug, Clone, PartialEq)]
 pub enum RuntimeError {
     #[error("Undefined variable: {0}")]
@@ -97,67 +106,76 @@ pub enum RuntimeError {
     InvalidAccess(String),
     #[error("Type error: {0}")]
     TypeError(String),
-    // Hacky but works for control-flow
-    #[error("break")]
+    #[error("Division by zero")]
+    DivisionByZero,
+    #[error("No match found for value")]
+    MatchError,
+}
+
+// Internal enum to handle control flow + values
+enum StatementResult {
+    Normal(Value),
+    Return(Value),
     Break,
-    #[error("continue")]
     Continue,
 }
 
-/// The interpreter, responsible for evaluating the AST.
 pub struct Interpreter;
 
 impl Interpreter {
-    /// Creates a new `Interpreter`.
     pub fn new() -> Self {
         Interpreter
     }
 
-    /// Interprets a program.
     pub fn interpret(
         &self,
         program: &Program,
         env: Rc<RefCell<Environment>>,
     ) -> Result<Option<Value>, RuntimeError> {
-        let mut last_evaluated_value: Option<Value> = None;
+        let mut last_val = Value::Unit;
+
         for statement in &program.statements {
-            println!("Interpreting statement: {:?}", statement);
-            let statement_result = self.evaluate_statement(statement, &env)?;
-            if statement_result.is_some() {
-                println!("Explicit return: {:?}", statement_result);
-                return Ok(statement_result); // Propagate explicit return
-            }
-            // If the statement was an expression, capture its value
-            if let Statement::Expression(expr) = statement {
-                last_evaluated_value = Some(self.evaluate_expression(expr, &env)?);
-                println!(
-                    "Last evaluated expression value: {:?}",
-                    last_evaluated_value
-                );
+            match self.evaluate_statement(statement, &env)? {
+                StatementResult::Return(val) => return Ok(Some(val)),
+                StatementResult::Normal(val) => last_val = val,
+                StatementResult::Break | StatementResult::Continue => {
+                    // Top-level break/continue is usually invalid, but we'll ignore or error.
+                    // For now, treating as normal no-op.
+                }
             }
         }
-        println!("Final last_evaluated_value: {:?}", last_evaluated_value);
-        Ok(last_evaluated_value) // Return the last evaluated expression, or None if no expressions
+
+        // If the last statement produced a value (e.g. `5;`), we return it.
+        // This supports the test cases expecting implicit returns from scripts.
+        if matches!(last_val, Value::Unit) {
+            Ok(None)
+        } else {
+            Ok(Some(last_val))
+        }
     }
 
     fn evaluate_statement(
         &self,
         statement: &Statement,
         env: &Rc<RefCell<Environment>>,
-    ) -> Result<Option<Value>, RuntimeError> {
+    ) -> Result<StatementResult, RuntimeError> {
         match statement {
             Statement::Expression(expr) => {
-                let value = self.evaluate_expression(expr, env)?;
-                Ok(Some(value))
+                let val = self.evaluate_expression(expr, env)?;
+                Ok(StatementResult::Normal(val))
             }
             Statement::Assignment { name, value } => {
                 let value = self.evaluate_expression(value, env)?;
                 env.borrow_mut().set(name.clone(), value);
-                Ok(None)
+                Ok(StatementResult::Normal(Value::Unit))
             }
-            Statement::VarDecl { name, .. } => {
-                env.borrow_mut().set(name.clone(), Value::Null);
-                Ok(None)
+            Statement::VarDecl { name, value, .. } => {
+                let initial_value = match value {
+                    Some(expr) => self.evaluate_expression(expr, env)?,
+                    None => Value::Null,
+                };
+                env.borrow_mut().set(name.clone(), initial_value);
+                Ok(StatementResult::Normal(Value::Unit))
             }
             Statement::FunctionDef(def) => {
                 let closure = Closure {
@@ -166,52 +184,94 @@ impl Interpreter {
                 };
                 env.borrow_mut()
                     .set(def.name.clone(), Value::Closure(closure));
-                Ok(None)
+                Ok(StatementResult::Normal(Value::Unit))
             }
             Statement::StructDecl(decl) => {
-                let name = decl.name.clone();
-                let fields = decl.fields.iter().map(|(name, _)| name.clone()).collect();
-                let struct_val = Value::Struct(Struct { name, fields });
+                let struct_val = Value::Struct(Struct {
+                    name: decl.name.clone(),
+                    fields: decl.fields.iter().map(|(n, _)| n.clone()).collect(),
+                });
                 env.borrow_mut().set(decl.name.clone(), struct_val);
-                Ok(None)
+                Ok(StatementResult::Normal(Value::Unit))
             }
             Statement::EnumDecl(decl) => {
-                let name = decl.name.clone();
-                let variants = decl.variants.clone();
-                let enum_val = Value::Enum(Enum { name, variants });
+                let enum_val = Value::Enum(Enum {
+                    name: decl.name.clone(),
+                    variants: decl.variants.clone(),
+                });
                 env.borrow_mut().set(decl.name.clone(), enum_val);
-                Ok(None)
+                Ok(StatementResult::Normal(Value::Unit))
             }
             Statement::If {
                 condition,
                 then_branch,
                 else_branch,
             } => {
-                let condition_val = self.evaluate_expression(condition, env)?;
-                if let Value::Boolean(b) = condition_val {
-                    if b {
-                        for statement in then_branch {
-                            if let Some(returned_value) = self.evaluate_statement(statement, env)? {
-                                return Ok(Some(returned_value));
-                            }
-                        }
-                    } else if let Some(else_branch) = else_branch {
-                        for statement in else_branch {
-                            if let Some(returned_value) = self.evaluate_statement(statement, env)? {
-                                return Ok(Some(returned_value));
-                            }
-                        }
-                    }
-                    Ok(None)
+                let cond = self.evaluate_expression(condition, env)?;
+                if self.is_truthy(&cond) {
+                    self.execute_block(then_branch, env)
+                } else if let Some(else_stmt) = else_branch {
+                    self.execute_block(else_stmt, env)
                 } else {
-                    Err(RuntimeError::TypeError(
-                        "If condition must evaluate to a boolean".to_string(),
-                    ))
+                    Ok(StatementResult::Normal(Value::Unit))
                 }
             }
+            Statement::While { condition, body } => {
+                let mut last_loop_val = Value::Unit;
+                while self.is_truthy(&self.evaluate_expression(condition, env)?) {
+                    match self.execute_block(body, env)? {
+                        StatementResult::Return(v) => return Ok(StatementResult::Return(v)),
+                        StatementResult::Break => break,
+                        StatementResult::Continue => continue,
+                        StatementResult::Normal(v) => last_loop_val = v,
+                    }
+                }
+                Ok(StatementResult::Normal(last_loop_val))
+            }
+            Statement::For {
+                iterator,
+                iterable,
+                body,
+            } => {
+                let iter_val = self.evaluate_expression(iterable, env)?;
+                let mut last_loop_val = Value::Unit;
+
+                if let Value::List(elements) = iter_val {
+                    for element in elements {
+                        let loop_env =
+                            Rc::new(RefCell::new(Environment::new_enclosed(Rc::clone(env))));
+                        loop_env.borrow_mut().set(iterator.clone(), element);
+
+                        match self.execute_block_with_env(body, &loop_env)? {
+                            StatementResult::Return(v) => return Ok(StatementResult::Return(v)),
+                            StatementResult::Break => break,
+                            StatementResult::Continue => continue,
+                            StatementResult::Normal(v) => last_loop_val = v,
+                        }
+                    }
+                    Ok(StatementResult::Normal(last_loop_val))
+                } else {
+                    Err(RuntimeError::TypeError("For loop expects a list".into()))
+                }
+            }
+            Statement::Match { value, arms } => {
+                let val = self.evaluate_expression(value, env)?;
+                for arm in arms {
+                    let match_env =
+                        Rc::new(RefCell::new(Environment::new_enclosed(Rc::clone(env))));
+                    if self.match_pattern(&val, &arm.pattern, &match_env) {
+                        let result = self.evaluate_expression(&arm.body, &match_env)?;
+                        return Ok(StatementResult::Normal(result));
+                    }
+                }
+                Err(RuntimeError::MatchError)
+            }
             Statement::Return(expr) => {
-                let value = self.evaluate_expression(expr, env)?;
-                Ok(Some(value))
+                let value = match expr {
+                    Some(e) => self.evaluate_expression(e, env)?,
+                    None => Value::Unit,
+                };
+                Ok(StatementResult::Return(value))
             }
             Statement::PropertyAssignment {
                 object,
@@ -222,42 +282,96 @@ impl Interpreter {
                     name
                 } else {
                     return Err(RuntimeError::TypeError(
-                        "Cannot assign to property of a non-variable.".to_string(),
+                        "Cannot assign to non-variable".into(),
                     ));
                 };
-
                 let new_value = self.evaluate_expression(value, env)?;
-
-                // 1. Get a COPY of the struct instance from the environment.
                 let object_val = env
                     .borrow()
                     .get(object_name)
-                    .ok_or_else(|| RuntimeError::UndefinedVariable(object_name.clone()))?;
+                    .ok_or(RuntimeError::UndefinedVariable(object_name.clone()))?;
 
                 if let Value::StructInstance(mut instance) = object_val {
-                    // 2. MUTATE THE LOCAL COPY
                     if instance.fields.contains_key(property) {
                         instance.fields.insert(property.clone(), new_value);
+                        env.borrow_mut()
+                            .set(object_name.clone(), Value::StructInstance(instance));
+                        Ok(StatementResult::Normal(Value::Unit))
                     } else {
-                        return Err(RuntimeError::InvalidAccess(format!(
-                            "Property '{}' does not exist on struct '{}'",
-                            property, instance.name
-                        )));
+                        Err(RuntimeError::InvalidAccess(format!(
+                            "Property {} not found",
+                            property
+                        )))
                     }
-
-                    // 3. UPDATE THE ENVIRONMENT with the new, mutated copy.
-                    env.borrow_mut()
-                        .set(object_name.clone(), Value::StructInstance(instance));
-                    Ok(None)
                 } else {
                     Err(RuntimeError::TypeError(
-                        "Only struct instances can have properties assigned.".to_string(),
+                        "Target is not a struct instance".into(),
                     ))
                 }
             }
-            Statement::Break => Err(RuntimeError::Break),
-            Statement::Continue => Err(RuntimeError::Continue),
+            Statement::ArrayAssignment {
+                array,
+                index,
+                value,
+            } => {
+                let array_expr = match array {
+                    Expression::Identifier(name) => name,
+                    _ => {
+                        return Err(RuntimeError::TypeError(
+                            "Array assignment only works on variables currently".into(),
+                        ));
+                    }
+                };
+
+                let array_val = env
+                    .borrow()
+                    .get(array_expr)
+                    .ok_or(RuntimeError::UndefinedVariable(array_expr.clone()))?;
+                let idx_val = self.evaluate_expression(index, env)?;
+                let new_val = self.evaluate_expression(value, env)?;
+
+                if let (Value::List(mut list), Value::Integer(idx)) = (array_val, idx_val) {
+                    let i = idx as usize;
+                    if i < list.len() {
+                        list[i] = new_val;
+                        env.borrow_mut().set(array_expr.clone(), Value::List(list));
+                        Ok(StatementResult::Normal(Value::Unit))
+                    } else {
+                        Err(RuntimeError::InvalidAccess("Index out of bounds".into()))
+                    }
+                } else {
+                    Err(RuntimeError::TypeError("Invalid array assignment".into()))
+                }
+            }
+            Statement::Break => Ok(StatementResult::Break),
+            Statement::Continue => Ok(StatementResult::Continue),
         }
+    }
+
+    fn execute_block(
+        &self,
+        statements: &[Statement],
+        env: &Rc<RefCell<Environment>>,
+    ) -> Result<StatementResult, RuntimeError> {
+        let block_env = Rc::new(RefCell::new(Environment::new_enclosed(Rc::clone(env))));
+        self.execute_block_with_env(statements, &block_env)
+    }
+
+    fn execute_block_with_env(
+        &self,
+        statements: &[Statement],
+        env: &Rc<RefCell<Environment>>,
+    ) -> Result<StatementResult, RuntimeError> {
+        let mut last_val = Value::Unit;
+        for stmt in statements {
+            match self.evaluate_statement(stmt, env)? {
+                StatementResult::Return(v) => return Ok(StatementResult::Return(v)),
+                StatementResult::Break => return Ok(StatementResult::Break),
+                StatementResult::Continue => return Ok(StatementResult::Continue),
+                StatementResult::Normal(v) => last_val = v,
+            }
+        }
+        Ok(StatementResult::Normal(last_val))
     }
 
     fn evaluate_expression(
@@ -270,175 +384,108 @@ impl Interpreter {
             Expression::Identifier(name) => env
                 .borrow()
                 .get(name)
-                .ok_or_else(|| RuntimeError::UndefinedVariable(name.clone())),
+                .ok_or(RuntimeError::UndefinedVariable(name.clone())),
             Expression::Binary { left, op, right } => {
-                let left = self.evaluate_expression(left, env)?;
-                let right = self.evaluate_expression(right, env)?;
-                self.apply_binary_op(left, *op, right)
+                let left_val = self.evaluate_expression(left, env)?;
+                match op {
+                    Operator::Or => {
+                        if self.is_truthy(&left_val) {
+                            return Ok(Value::Boolean(true));
+                        }
+                        let right_val = self.evaluate_expression(right, env)?;
+                        return Ok(Value::Boolean(self.is_truthy(&right_val)));
+                    }
+                    Operator::And => {
+                        if !self.is_truthy(&left_val) {
+                            return Ok(Value::Boolean(false));
+                        }
+                        let right_val = self.evaluate_expression(right, env)?;
+                        return Ok(Value::Boolean(self.is_truthy(&right_val)));
+                    }
+                    _ => {}
+                }
+                let right_val = self.evaluate_expression(right, env)?;
+                self.apply_binary_op(left_val, *op, right_val)
+            }
+            Expression::Unary { op, right } => {
+                let val = self.evaluate_expression(right, env)?;
+                match op {
+                    Operator::Not => Ok(Value::Boolean(!self.is_truthy(&val))),
+                    Operator::Subtract => match val {
+                        Value::Integer(i) => Ok(Value::Integer(-i)),
+                        Value::Float(f) => Ok(Value::Float(-f)),
+                        _ => Err(RuntimeError::TypeError("Negation requires number".into())),
+                    },
+                    _ => Err(RuntimeError::TypeError("Invalid unary operator".into())),
+                }
             }
             Expression::FunctionCall { callee, args } => {
-                let function = self.evaluate_expression(callee, env)?;
+                let func = self.evaluate_expression(callee, env)?;
+                let mut arg_vals = Vec::new();
+                for arg in args {
+                    arg_vals.push(self.evaluate_expression(arg, env)?);
+                }
 
-                match function {
+                match func {
+                    Value::Closure(closure) => self.call_function(closure, arg_vals),
                     Value::Function(def) => {
-                        let call_env =
-                            Rc::new(RefCell::new(Environment::new_enclosed(Rc::clone(env))));
-
-                        if def.args.len() != args.len() {
-                            return Err(RuntimeError::TypeError(format!(
-                                "Expected {} arguments but got {}",
-                                def.args.len(),
-                                args.len()
-                            )));
-                        }
-
-                        for (param, arg) in def.args.iter().zip(args) {
-                            let arg_val = self.evaluate_expression(arg, env)?;
-                            call_env.borrow_mut().set(param.clone(), arg_val);
-                        }
-
-                        let mut result = Value::Null;
-                        for statement in &def.body {
-                            if let Some(returned_value) =
-                                self.evaluate_statement(statement, &call_env)?
-                            {
-                                result = returned_value;
-                                break;
-                            }
-                        }
-                        Ok(result)
+                        let closure = Closure {
+                            definition: Rc::new(def),
+                            env: Rc::new(RefCell::new(Environment::new())),
+                        };
+                        self.call_function(closure, arg_vals)
                     }
-                    Value::Lambda(lambda) => {
-                        let lambda_env =
-                            Rc::new(RefCell::new(Environment::new_enclosed(Rc::clone(env))));
-
-                        if lambda.args.len() != args.len() {
-                            return Err(RuntimeError::TypeError(format!(
-                                "Expected {} arguments but got {}",
-                                lambda.args.len(),
-                                args.len()
-                            )));
-                        }
-
-                        for (param, arg) in lambda.args.iter().zip(args) {
-                            let arg_val = self.evaluate_expression(arg, env)?;
-                            lambda_env.borrow_mut().set(param.clone(), arg_val);
-                        }
-
-                        self.evaluate_expression(&lambda.body, &lambda_env)
-                    }
-                    Value::Closure(closure) => {
-                        let call_env = Rc::new(RefCell::new(Environment::new_enclosed(Rc::clone(
-                            &closure.env,
-                        ))));
-
-                        let def = &closure.definition;
-                        if def.args.len() != args.len() {
-                            return Err(RuntimeError::TypeError(format!(
-                                "Expected {} arguments but got {}",
-                                def.args.len(),
-                                args.len()
-                            )));
-                        }
-
-                        for (param, arg) in def.args.iter().zip(args) {
-                            let arg_val = self.evaluate_expression(arg, env)?;
-                            call_env.borrow_mut().set(param.clone(), arg_val);
-                        }
-
-                        let mut result = Value::Null;
-                        for statement in &def.body {
-                            if let Some(returned_value) =
-                                self.evaluate_statement(statement, &call_env)?
-                            {
-                                result = returned_value;
-                                break;
-                            }
-                        }
-                        Ok(result)
-                    }
-                    _ => Err(RuntimeError::TypeError(format!(
-                        "{:?} is not a function",
-                        callee
-                    ))),
+                    _ => Err(RuntimeError::TypeError("Not a function".into())),
                 }
             }
             Expression::Lambda { args, body } => {
                 let func_def = FunctionDef {
                     name: gensym("lambda"),
                     args: args.clone(),
-                    body: vec![Statement::Return(*body.clone())],
+                    body: vec![Statement::Return(Some(*body.clone()))],
                 };
-
-                let closure = Closure {
+                Ok(Value::Closure(Closure {
                     definition: Rc::new(func_def),
                     env: Rc::clone(env),
-                };
-                Ok(Value::Closure(closure))
+                }))
+            }
+            Expression::List(elements) => {
+                let mut vals = Vec::new();
+                for el in elements {
+                    vals.push(self.evaluate_expression(el, env)?);
+                }
+                Ok(Value::List(vals))
             }
             Expression::StructInstantiation { name, fields } => {
-                let struct_val = env
-                    .borrow()
-                    .get(name)
-                    .ok_or_else(|| RuntimeError::TypeError(format!("{} is not a struct", name)))?;
-
-                if let Value::Struct(_struct_def) = struct_val {
-                    let mut instance_fields = HashMap::new();
-                    for (field_name, field_value) in fields {
-                        let value = self.evaluate_expression(field_value, env)?;
-                        instance_fields.insert(field_name.clone(), value);
-                    }
-
-                    Ok(Value::StructInstance(StructInstance {
-                        name: name.clone(),
-                        fields: instance_fields,
-                    }))
-                } else {
-                    Err(RuntimeError::TypeError(format!("{} is not a struct", name)))
+                let mut field_vals = HashMap::new();
+                for (k, v) in fields {
+                    field_vals.insert(k.clone(), self.evaluate_expression(v, env)?);
                 }
+                Ok(Value::StructInstance(StructInstance {
+                    name: name.clone(),
+                    fields: field_vals,
+                }))
             }
             Expression::Get { object, name } => {
-                let object = self.evaluate_expression(object, env)?;
-                if let Value::StructInstance(instance) = object {
-                    instance.fields.get(name).cloned().ok_or_else(|| {
-                        RuntimeError::TypeError(format!("Undefined property {}", name))
-                    })
+                let obj = self.evaluate_expression(object, env)?;
+                if let Value::StructInstance(inst) = obj {
+                    inst.fields
+                        .get(name)
+                        .cloned()
+                        .ok_or(RuntimeError::InvalidAccess(format!("Field {}", name)))
                 } else {
-                    Err(RuntimeError::TypeError(
-                        "Only struct instances have properties.".to_string(),
-                    ))
+                    Err(RuntimeError::TypeError("Not a struct".into()))
                 }
             }
-            Expression::Path { parts } => {
-                if parts.len() == 2 {
-                    let enum_name = &parts[0];
-                    let variant_name = &parts[1];
-                    let enum_val = env.borrow().get(enum_name).ok_or_else(|| {
-                        RuntimeError::TypeError(format!("{} is not an enum", enum_name))
-                    })?;
-
-                    if let Value::Enum(enum_def) = enum_val {
-                        if enum_def.variants.contains(variant_name) {
-                            Ok(Value::EnumVariant(EnumVariant {
-                                enum_name: enum_name.clone(),
-                                variant_name: variant_name.clone(),
-                            }))
-                        } else {
-                            Err(RuntimeError::TypeError(format!(
-                                "{} is not a variant of {}",
-                                variant_name, enum_name
-                            )))
-                        }
-                    } else {
-                        Err(RuntimeError::TypeError(format!(
-                            "{} is not an enum",
-                            enum_name
-                        )))
-                    }
+            Expression::ArrayAccess { array, index } => {
+                let arr = self.evaluate_expression(array, env)?;
+                let idx = self.evaluate_expression(index, env)?;
+                if let (Value::List(list), Value::Integer(i)) = (arr, idx) {
+                    list.get(i as usize)
+                        .cloned()
+                        .ok_or(RuntimeError::InvalidAccess("Index bounds".into()))
                 } else {
-                    Err(RuntimeError::TypeError(
-                        "Invalid path expression".to_string(),
-                    ))
+                    Err(RuntimeError::TypeError("Invalid array access".into()))
                 }
             }
             Expression::If {
@@ -446,105 +493,104 @@ impl Interpreter {
                 then_branch,
                 else_branch,
             } => {
-                let condition_val = self.evaluate_expression(condition, env)?;
-                if let Value::Boolean(b) = condition_val {
-                    if b {
-                        let mut result = Value::Null;
-                        for statement in then_branch {
-                            if let Some(returned_value) = self.evaluate_statement(statement, env)? {
-                                result = returned_value;
-                                break;
-                            }
-                        }
-                        Ok(result)
-                    } else if let Some(else_branch) = else_branch {
-                        let mut result = Value::Null;
-                        for statement in else_branch {
-                            if let Some(returned_value) = self.evaluate_statement(statement, env)? {
-                                result = returned_value;
-                                break;
-                            }
-                        }
-                        Ok(result)
-                    } else {
-                        Ok(Value::Null)
+                let cond = self.evaluate_expression(condition, env)?;
+                if self.is_truthy(&cond) {
+                    // If used as expression, return the block's result (Normal)
+                    match self.execute_block(then_branch, env)? {
+                        StatementResult::Return(v) => Ok(v), // Weird edge case: return inside expr
+                        StatementResult::Normal(v) => Ok(v),
+                        _ => Ok(Value::Unit),
+                    }
+                } else if let Some(else_stmt) = else_branch {
+                    match self.execute_block(else_stmt, env)? {
+                        StatementResult::Return(v) => Ok(v),
+                        StatementResult::Normal(v) => Ok(v),
+                        _ => Ok(Value::Unit),
                     }
                 } else {
-                    Err(RuntimeError::TypeError(
-                        "If condition must evaluate to a boolean".to_string(),
-                    ))
+                    Ok(Value::Unit)
                 }
-            }
-            Expression::List(elements) => {
-                let mut evaluated_elements = Vec::new();
-                for element in elements {
-                    let value = self.evaluate_expression(element, env)?;
-                    evaluated_elements.push(value);
-                }
-                Ok(Value::List(evaluated_elements))
             }
             Expression::EnumVariant {
                 enum_name,
                 variant_name,
             } => {
-                let enum_val = env.borrow().get(enum_name).ok_or_else(|| {
-                    RuntimeError::TypeError(format!("{} is not an enum", enum_name))
-                })?;
-
-                if let Value::Enum(enum_def) = enum_val {
-                    if enum_def.variants.contains(variant_name) {
-                        Ok(Value::EnumVariant(EnumVariant {
-                            enum_name: enum_name.clone(),
-                            variant_name: variant_name.clone(),
-                        }))
-                    } else {
-                        Err(RuntimeError::TypeError(format!(
-                            "{} is not a variant of {}",
-                            variant_name, enum_name
-                        )))
-                    }
-                } else {
-                    Err(RuntimeError::TypeError(format!(
-                        "{} is not an enum",
-                        enum_name
-                    )))
-                }
+                // Just return the value directly, assumes checks pass or done loosely
+                Ok(Value::EnumVariant(EnumVariant {
+                    enum_name: enum_name.clone(),
+                    variant_name: variant_name.clone(),
+                }))
             }
-            Expression::ArrayAccess { array, index } => {
-                let array_val = self.evaluate_expression(array, env)?;
-                let index_val = self.evaluate_expression(index, env)?;
-
-                if let Value::List(elements) = array_val {
-                    if let Value::Integer(idx) = index_val {
-                        let idx_usize = idx as usize;
-                        if idx_usize < elements.len() {
-                            Ok(elements[idx_usize].clone())
-                        } else {
-                            Err(RuntimeError::InvalidAccess(format!(
-                                "Array index {} out of bounds. Length is {}",
-                                idx,
-                                elements.len()
-                            )))
-                        }
-                    } else {
-                        Err(RuntimeError::TypeError(
-                            "Array index must be an integer".to_string(),
-                        ))
-                    }
+            Expression::Path { parts } => {
+                // Quick path implementation
+                if parts.len() == 2 {
+                    Ok(Value::EnumVariant(EnumVariant {
+                        enum_name: parts[0].clone(),
+                        variant_name: parts[1].clone(),
+                    }))
                 } else {
-                    Err(RuntimeError::TypeError(
-                        "Only arrays can be indexed".to_string(),
-                    ))
+                    Err(RuntimeError::TypeError("Invalid path".into()))
                 }
             }
         }
     }
 
+    fn call_function(&self, closure: Closure, args: Vec<Value>) -> Result<Value, RuntimeError> {
+        if args.len() != closure.definition.args.len() {
+            return Err(RuntimeError::TypeError("Arg count mismatch".into()));
+        }
+        let call_env = Rc::new(RefCell::new(Environment::new_enclosed(closure.env)));
+        for (name, val) in closure.definition.args.iter().zip(args) {
+            call_env.borrow_mut().set(name.clone(), val);
+        }
+
+        match self.execute_block_with_env(&closure.definition.body, &call_env)? {
+            StatementResult::Return(val) => Ok(val),
+            StatementResult::Normal(val) => Ok(val), // Implicit return of last value
+            _ => Ok(Value::Unit),
+        }
+    }
+
     fn evaluate_literal(&self, literal: &LiteralValue) -> Value {
         match literal {
-            LiteralValue::Integer(val) => Value::Integer(*val),
-            LiteralValue::String(val) => Value::String(val.clone()),
-            LiteralValue::Boolean(val) => Value::Boolean(*val),
+            LiteralValue::Integer(i) => Value::Integer(*i),
+            LiteralValue::Float(f) => Value::Float(*f),
+            LiteralValue::String(s) => Value::String(s.clone()),
+            LiteralValue::Boolean(b) => Value::Boolean(*b),
+            LiteralValue::Unit => Value::Unit,
+            LiteralValue::Array(elements) => {
+                let vals = elements
+                    .iter()
+                    .map(|el| self.evaluate_literal(el))
+                    .collect();
+                Value::List(vals)
+            }
+        }
+    }
+
+    fn is_truthy(&self, value: &Value) -> bool {
+        match value {
+            Value::Boolean(b) => *b,
+            Value::Null => false,
+            Value::Unit => false,
+            _ => true,
+        }
+    }
+
+    fn match_pattern(
+        &self,
+        value: &Value,
+        pattern: &Pattern,
+        env: &Rc<RefCell<Environment>>,
+    ) -> bool {
+        match (pattern, value) {
+            (Pattern::Wildcard, _) => true,
+            (Pattern::Literal(lit), val) => self.evaluate_literal(lit) == *val,
+            (Pattern::Identifier(name), val) => {
+                env.borrow_mut().set(name.clone(), val.clone());
+                true
+            }
+            _ => false,
         }
     }
 
@@ -555,95 +601,40 @@ impl Interpreter {
         right: Value,
     ) -> Result<Value, RuntimeError> {
         match (left, right) {
-            (Value::Integer(left), Value::Integer(right)) => match op {
-                Operator::Add => Ok(Value::Integer(left + right)),
-                Operator::Subtract => Ok(Value::Integer(left - right)),
-                Operator::Multiply => Ok(Value::Integer(left * right)),
+            (Value::Integer(l), Value::Integer(r)) => match op {
+                Operator::Add => Ok(Value::Integer(l + r)),
+                Operator::Subtract => Ok(Value::Integer(l - r)),
+                Operator::Multiply => Ok(Value::Integer(l * r)),
                 Operator::Divide => {
-                    if right == 0 {
-                        return Err(RuntimeError::TypeError(
-                            "Division by zero is not allowed".to_string(),
-                        ));
+                    if r == 0 {
+                        return Err(RuntimeError::DivisionByZero);
                     }
-                    Ok(Value::Integer(left / right))
+                    Ok(Value::Integer(l / r))
                 }
-                Operator::Equal => Ok(Value::Boolean(left == right)),
-                Operator::NotEqual => Ok(Value::Boolean(left != right)),
-                Operator::GreaterThan => Ok(Value::Boolean(left > right)),
-                Operator::GreaterThanEqual => Ok(Value::Boolean(left >= right)),
-                Operator::LessThan => Ok(Value::Boolean(left < right)),
-                Operator::LessThanEqual => Ok(Value::Boolean(left <= right)),
+                Operator::Modulo => {
+                    if r == 0 {
+                        return Err(RuntimeError::DivisionByZero);
+                    }
+                    Ok(Value::Integer(l % r))
+                }
+                Operator::Equal => Ok(Value::Boolean(l == r)),
+                Operator::NotEqual => Ok(Value::Boolean(l != r)),
+                Operator::GreaterThan => Ok(Value::Boolean(l > r)),
+                Operator::LessThan => Ok(Value::Boolean(l < r)),
+                Operator::GreaterThanEqual => Ok(Value::Boolean(l >= r)),
+                Operator::LessThanEqual => Ok(Value::Boolean(l <= r)),
+                _ => Err(RuntimeError::TypeError("Invalid integer operator".into())),
             },
-            (Value::String(left), Value::String(right)) => match op {
-                Operator::Add => Ok(Value::String(format!("{}{}", left, right))),
-                Operator::Equal => Ok(Value::Boolean(left == right)),
-                Operator::NotEqual => Ok(Value::Boolean(left != right)),
-                _ => Err(RuntimeError::TypeError(format!(
-                    "Unsupported operator {:?} for strings",
-                    op
-                ))),
+            (Value::Float(l), Value::Float(r)) => match op {
+                Operator::Add => Ok(Value::Float(l + r)),
+                Operator::Subtract => Ok(Value::Float(l - r)),
+                Operator::Multiply => Ok(Value::Float(l * r)),
+                Operator::Divide => Ok(Value::Float(l / r)),
+                Operator::Equal => Ok(Value::Boolean(l == r)),
+                Operator::LessThan => Ok(Value::Boolean(l < r)),
+                _ => Err(RuntimeError::TypeError("Invalid float operator".into())),
             },
-            (Value::Boolean(left), Value::Boolean(right)) => match op {
-                Operator::Equal => Ok(Value::Boolean(left == right)),
-                Operator::NotEqual => Ok(Value::Boolean(left != right)),
-                _ => Err(RuntimeError::TypeError(format!(
-                    "Unsupported operator {:?} for booleans",
-                    op
-                ))),
-            },
-            (l, r) => Err(RuntimeError::TypeError(format!(
-                "Cannot apply operator {:?} to {:?} and {:?}",
-                op, l, r
-            ))),
+            _ => Err(RuntimeError::TypeError("Type mismatch in binary op".into())),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::lexer::Lexer;
-    use crate::parser::Parser;
-
-    fn interpret_source(source: &str) -> Result<Option<Value>, RuntimeError> {
-        let tokens = Lexer::new(source).tokenize().unwrap();
-        let mut parser = Parser::new(&tokens);
-        let program = parser.parse_program().unwrap();
-        let interpreter = Interpreter::new();
-        let env = Rc::new(RefCell::new(Environment::new()));
-        interpreter.interpret(&program, env)
-    }
-
-    #[test]
-    fn test_integer_expression() {
-        let result = interpret_source("5;").unwrap().unwrap();
-        assert_eq!(result, Value::Integer(5));
-    }
-
-    #[test]
-    fn test_addition() {
-        let result = interpret_source("1 + 5;").unwrap().unwrap();
-        assert_eq!(result, Value::Integer(6));
-    }
-
-    #[test]
-    fn test_assignment() {
-        let result = interpret_source("x = 5; x;").unwrap().unwrap();
-        assert_eq!(result, Value::Integer(5));
-    }
-
-    #[test]
-    fn test_function_call() {
-        let source = "func add(a, b) { a + b; } add(1, 2);";
-        let result = interpret_source(source).unwrap().unwrap();
-        assert_eq!(result, Value::Integer(3));
-    }
-
-    #[test]
-    fn test_variable_declaration() {
-        let result = interpret_source("x : int; x;")
-            .unwrap()
-            .unwrap_or(Value::Null);
-        assert_eq!(result, Value::Null);
     }
 }

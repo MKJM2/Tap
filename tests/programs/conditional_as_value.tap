@@ -1,0 +1,10 @@
+age : int = 20;
+
+# Assigning the result of an if-block to a variable
+status : str = if age >= 18 {
+    "Adult"
+} else {
+    "Minor"
+};
+
+status == "Adult"

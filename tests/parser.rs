@@ -1,9 +1,9 @@
-use tap_lang::ast::{
+use tap::ast::{
     EnumDecl, Expression, FunctionDef, LiteralValue, Operator, Program, Statement, StructDecl,
     TypeAnnotation,
 };
-use tap_lang::lexer::Lexer;
-use tap_lang::parser::Parser;
+use tap::lexer::Lexer;
+use tap::parser::Parser;
 
 // --- TEST HELPER ---
 // This helper function reduces boilerplate in all tests.
@@ -13,7 +13,7 @@ fn parse_test_source(source: &str) -> Program {
         .tokenize()
         .unwrap_or_else(|_| panic!("Lexing failed for source: {}", source));
 
-    let mut parser = Parser::new(&tokens);
+    let mut parser = Parser::new(&tokens, source);
     parser.parse_program().unwrap_or_else(|e| {
         panic!(
             "Parsing failed for source: \"{}\"\n\nError Report:\n{:?}",
@@ -238,7 +238,7 @@ fn test_parse_return_statement() {
     assert_eq!(program.statements.len(), 1);
     match &program.statements[0] {
         Statement::Return(value) => {
-            assert_eq!(*value, Expression::Literal(LiteralValue::Integer(42)));
+            assert_eq!(*value, Some(Expression::Literal(LiteralValue::Integer(42))));
         }
         _ => panic!("Expected a return statement."),
     }
@@ -313,9 +313,32 @@ fn test_parse_while_loop() {
 }
 
 #[test]
-#[ignore]
 fn test_parse_for_loop() {
     let program = parse_test_source("for i in [1, 2, 3] { print(i); }");
+    assert_eq!(program.statements.len(), 1);
+    // Add assertions here when the parser is updated.
+    match &program.statements[0] {
+        Statement::For {
+            iterator,
+            iterable,
+            body,
+        } => {
+            assert_eq!(iterator, "i");
+            match &**iterable {
+                Expression::Literal(LiteralValue::Array(elements)) => {
+                    assert_eq!(elements.len(), 3);
+                }
+                _ => panic!("Expected array literal as iterable."),
+            }
+            assert_eq!(body.len(), 1);
+        }
+        _ => panic!("Expected a for loop statement."),
+    }
+}
+
+#[test]
+fn test_parse_array_access_assignment() {
+    let program = parse_test_source("arr[0] += 1; arr[1] -= 2; arr[2] *= 3; arr[3] /= 4;");
     assert_eq!(program.statements.len(), 1);
     // Add assertions here when the parser is updated.
 }

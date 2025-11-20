@@ -1,9 +1,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
-use tap_lang::environment::Environment;
-use tap_lang::interpreter::{Interpreter, Value};
-use tap_lang::lexer::Lexer;
-use tap_lang::parser::Parser;
+use tap::environment::Environment;
+use tap::interpreter::{Interpreter, Value};
+use tap::lexer::Lexer;
+use tap::parser::Parser;
 
 // --- TEST HELPERS ---
 
@@ -19,7 +19,7 @@ fn eval_source(source: &str) -> Option<Value> {
         );
     });
 
-    let mut parser = Parser::new(&tokens);
+    let mut parser = Parser::new(&tokens, source);
     let program = parser.parse_program().unwrap_or_else(|e| {
         panic!(
             "Parsing failed for source:\n{}\nError Report:\n{:?}",
@@ -43,7 +43,7 @@ fn eval_source(source: &str) -> Option<Value> {
 /// It will panic if parsing fails or if the interpreter *succeeds*.
 fn expect_runtime_error(source: &str) {
     let tokens = Lexer::new(source).tokenize().unwrap();
-    let mut parser = Parser::new(&tokens);
+    let mut parser = Parser::new(&tokens, source);
     let program = parser.parse_program().unwrap();
     let interpreter = Interpreter::new();
     let env = Rc::new(RefCell::new(Environment::new()));

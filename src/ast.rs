@@ -1,4 +1,3 @@
-// src/ast.rs
 use std::fmt;
 
 /// Represents a program, which is a collection of statements.
@@ -12,6 +11,8 @@ pub struct Program {
 pub enum TypeAnnotation {
     Int,
     Str,
+    Bool, // Added for completeness
+    Unit, // Added for void functions
     Function {
         from: Box<TypeAnnotation>,
         to: Box<TypeAnnotation>,
@@ -25,7 +26,6 @@ pub enum TypeAnnotation {
         name: String,
     },
     UserDefined(String),
-    // TODO: Add other types
 }
 
 /// Represents a single statement in the language.
@@ -41,9 +41,16 @@ pub enum Statement {
         property: String,
         value: Expression,
     },
+    // New: Supports arr[i] = value
+    ArrayAssignment {
+        array: Expression,
+        index: Expression,
+        value: Expression,
+    },
     VarDecl {
         name: String,
         type_annotation: TypeAnnotation,
+        value: Option<Expression>,
     },
     FunctionDef(FunctionDef),
     StructDecl(StructDecl),
@@ -53,32 +60,65 @@ pub enum Statement {
         then_branch: Vec<Statement>,
         else_branch: Option<Vec<Statement>>,
     },
-    Return(Expression),
+    // New: Control Flow
+    While {
+        condition: Box<Expression>,
+        body: Vec<Statement>,
+    },
+    For {
+        iterator: String,
+        iterable: Box<Expression>,
+        body: Vec<Statement>,
+    },
+    Match {
+        value: Box<Expression>,
+        arms: Vec<MatchArm>,
+    },
+    // Updated: Return is now optional (void returns)
+    Return(Option<Expression>),
     Break,
     Continue,
 }
 
-/// Represents a struct definition.
+// --- Match Specific Structures ---
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub body: Expression,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pattern {
+    Wildcard, // The '_' pattern
+    Literal(LiteralValue),
+    Identifier(String),
+    EnumVariant {
+        enum_name: String,
+        variant: String,
+        vars: Vec<Pattern>, // Recursive patterns for Option::Some(x)
+    },
+}
+
+// --- Definitions ---
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructDecl {
     pub name: String,
     pub fields: Vec<(String, TypeAnnotation)>,
 }
 
-/// Represents an enum definition.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumDecl {
     pub name: String,
     pub variants: Vec<String>,
 }
 
-/// Represents a function definition.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionDef {
     pub name: String,
     pub args: Vec<String>,
     pub body: Vec<Statement>,
-    // pub return_type: Option<TypeAnnotation>,
 }
 
 /// Represents a single expression in the language.
@@ -97,6 +137,11 @@ pub enum Expression {
     },
     Binary {
         left: Box<Expression>,
+        op: Operator,
+        right: Box<Expression>,
+    },
+    // New: Unary Operations (!true, -5)
+    Unary {
         op: Operator,
         right: Box<Expression>,
     },
@@ -124,51 +169,58 @@ pub enum Expression {
         array: Box<Expression>,
         index: Box<Expression>,
     },
-    // TODO:
-    // Unary,
-    // Grouping,
 }
 
 /// Represents a literal value in the language.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LiteralValue {
     Integer(i64),
+    Float(f64),
     String(String),
     Boolean(bool),
-    // TODO:
-    // Float(f64),
-    // Bool(bool),
+    Unit,
+    Array(Vec<LiteralValue>),
 }
 
 /// Represents an operator in a binary or unary expression.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Operator {
-    // Binary
+    // Binary Arithmetic
     Add,
     Subtract,
     Multiply,
     Divide,
+    Modulo, // Added
+
+    // Comparison
     Equal,
     NotEqual,
     GreaterThan,
     GreaterThanEqual,
     LessThan,
     LessThanEqual,
-    // TODO:
-    // Modulo,
-    // ...
+
+    // Logic
+    And, // Added
+    Or,  // Added
 
     // Unary
-    // Not,
-    // Negate,
+    Not, // Added
+         // Negate uses 'Subtract' usually, or you can add specific 'Negate'
 }
 
 impl fmt::Display for LiteralValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LiteralValue::Integer(i) => write!(f, "{} : int", i),
-            LiteralValue::String(s) => write!(f, "\"{}\" : string", s),
-            LiteralValue::Boolean(b) => write!(f, "{} : bool", b),
+            LiteralValue::Integer(i) => write!(f, "{}", i),
+            LiteralValue::Float(fl) => write!(f, "{}", fl),
+            LiteralValue::String(s) => write!(f, "\"{}\"", s),
+            LiteralValue::Boolean(b) => write!(f, "{}", b),
+            LiteralValue::Unit => write!(f, "()"),
+            LiteralValue::Array(elements) => {
+                let elems: Vec<String> = elements.iter().map(|e| format!("{}", e)).collect();
+                write!(f, "[{}]", elems.join(", "))
+            }
         }
     }
 }

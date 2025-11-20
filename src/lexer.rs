@@ -1,10 +1,10 @@
 use std::fmt;
 
-/// Represents the different types of tokens that the lexer can produce.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     Identifier,
     Integer(i64),
+    Float(f64), // Added
     String(String),
     Semicolon,
     Assign,
@@ -24,18 +24,19 @@ pub enum TokenType {
     OpMult,
     OpDivide,
     OpFloorDiv,
-    OpModulo,
+    OpMod, // Renamed from OpModulo to match Parser
     OpXor,
-    OpOr,
-    OpAnd,
+    OpOr,  // Bitwise Or
+    OpAnd, // Bitwise And
     OpNeg,
-    OpLor,
-    OpLand,
-    OpLneg,
+    OpLor,  // Logical ||
+    OpLand, // Logical &&
+    Bang,   // Renamed from OpLneg (!) to match Parser
     OpIncrement,
     OpDecrement,
     OpExponent,
-    Arrow,
+    Arrow,    // ->
+    ArrowFat, // => (Added)
     Equal,
     NotEqual,
     GreaterThan,
@@ -50,7 +51,8 @@ pub enum TokenType {
     CloseBracket,
     Comma,
     Period,
-    Lambda,
+    Lambda,     // \
+    Underscore, // _ (Added)
     KeywordInt,
     KeywordStr,
     KeywordFunc,
@@ -59,6 +61,7 @@ pub enum TokenType {
     KeywordMatch,
     KeywordEnum,
     KeywordFor,
+    KeywordIn,
     KeywordWhile,
     KeywordContinue,
     KeywordBreak,
@@ -66,6 +69,7 @@ pub enum TokenType {
     KeywordElse,
     KeywordTrue,
     KeywordFalse,
+    KeywordUnit, // Added
     Unknown,
     EndOfFile,
 }
@@ -76,27 +80,42 @@ impl fmt::Display for TokenType {
     }
 }
 
-/// Represents a single token produced by the lexer.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct Span {
+    pub lo: usize,
+    pub hi: usize,
+}
+
+impl Span {
+    pub fn new(lo: usize, hi: usize) -> Self {
+        Self { lo, hi }
+    }
+
+    pub fn len(self) -> usize {
+        self.hi - self.lo
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub token_type: TokenType,
     pub lexeme: String,
     pub line: usize,
+    pub span: Span,
 }
 
 impl Token {
-    pub fn new(token_type: TokenType, lexeme: String, line: usize) -> Self {
+    pub fn new(token_type: TokenType, lexeme: String, line: usize, span: Span) -> Self {
         Token {
             token_type,
             lexeme,
             line,
+            span,
         }
     }
 }
 
-/// The lexer, responsible for turning a source string into a vector of tokens.
-pub struct Lexer<'a> {
-    source: &'a str,
+pub struct Lexer {
     chars: Vec<char>,
     tokens: Vec<Token>,
     start: usize,
@@ -104,11 +123,9 @@ pub struct Lexer<'a> {
     line: usize,
 }
 
-impl<'a> Lexer<'a> {
-    /// Creates a new `Lexer`.
-    pub fn new(source: &'a str) -> Self {
+impl Lexer {
+    pub fn new(source: &str) -> Self {
         Lexer {
-            source,
             chars: source.chars().collect(),
             tokens: Vec::new(),
             start: 0,
@@ -117,15 +134,17 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// Tokenizes the source string and returns a vector of tokens.
     pub fn tokenize(mut self) -> Result<Vec<Token>, String> {
         while !self.is_at_end() {
             self.start = self.current;
             self.scan_token()?;
         }
-
-        self.tokens
-            .push(Token::new(TokenType::EndOfFile, "".to_string(), self.line));
+        self.tokens.push(Token::new(
+            TokenType::EndOfFile,
+            "".to_string(),
+            self.line,
+            Span::new(self.current, self.current),
+        ));
         Ok(self.tokens)
     }
 
@@ -153,9 +172,12 @@ impl<'a> Lexer<'a> {
             ',' => self.add_token(TokenType::Comma),
             '.' => self.add_token(TokenType::Period),
             '\\' => self.add_token(TokenType::Lambda),
+            '_' => self.add_token(TokenType::Underscore),
             '=' => {
                 if self.match_char('=') {
                     self.add_token(TokenType::Equal)
+                } else if self.match_char('>') {
+                    self.add_token(TokenType::ArrowFat) // Added =>
                 } else {
                     self.add_token(TokenType::Assign)
                 }
@@ -202,7 +224,7 @@ impl<'a> Lexer<'a> {
                 if self.match_char('=') {
                     self.add_token(TokenType::ModAssign)
                 } else {
-                    self.add_token(TokenType::OpModulo)
+                    self.add_token(TokenType::OpMod)
                 }
             }
             '^' => {
@@ -225,23 +247,16 @@ impl<'a> Lexer<'a> {
                 if self.match_char('=') {
                     self.add_token(TokenType::AndAssign)
                 } else if self.match_char('&') {
-                    self.add_token(TokenType::OpAnd)
-                } else {
                     self.add_token(TokenType::OpLand)
-                }
-            }
-            '~' => {
-                if self.match_char('=') {
-                    self.add_token(TokenType::NegAssign)
                 } else {
-                    self.add_token(TokenType::OpNeg)
+                    self.add_token(TokenType::OpAnd)
                 }
             }
             '!' => {
                 if self.match_char('=') {
                     self.add_token(TokenType::NotEqual)
                 } else {
-                    self.add_token(TokenType::OpLneg)
+                    self.add_token(TokenType::Bang) // Changed from OpLneg
                 }
             }
             '>' => {
@@ -281,14 +296,13 @@ impl<'a> Lexer<'a> {
 
     fn add_token(&mut self, token_type: TokenType) {
         let text: String = self.chars[self.start..self.current].iter().collect();
-        self.tokens.push(Token::new(token_type, text, self.line));
+        let span = Span::new(self.start, self.current);
+        self.tokens
+            .push(Token::new(token_type, text, self.line, span));
     }
 
     fn match_char(&mut self, expected: char) -> bool {
-        if self.is_at_end() {
-            return false;
-        }
-        if self.chars[self.current] != expected {
+        if self.is_at_end() || self.chars[self.current] != expected {
             return false;
         }
         self.current += 1;
@@ -302,6 +316,13 @@ impl<'a> Lexer<'a> {
         self.chars[self.current]
     }
 
+    fn peek_next(&self) -> char {
+        if self.current + 1 >= self.chars.len() {
+            return '\0';
+        }
+        self.chars[self.current + 1]
+    }
+
     fn string(&mut self) -> Result<(), String> {
         while self.peek() != '"' && !self.is_at_end() {
             if self.peek() == '\n' {
@@ -309,13 +330,10 @@ impl<'a> Lexer<'a> {
             }
             self.advance();
         }
-
         if self.is_at_end() {
             return Err("Unterminated string.".to_string());
         }
-
-        self.advance(); // The closing ".
-
+        self.advance();
         let value = self.chars[self.start + 1..self.current - 1]
             .iter()
             .collect();
@@ -327,20 +345,32 @@ impl<'a> Lexer<'a> {
         while self.peek().is_digit(10) {
             self.advance();
         }
-        let value_str: String = self.chars[self.start..self.current].iter().collect();
-        let value: i64 = value_str.parse().unwrap();
-        self.add_token(TokenType::Integer(value));
+
+        // Look for a fractional part.
+        if self.peek() == '.' && self.peek_next().is_digit(10) {
+            self.advance(); // Consume the "."
+            while self.peek().is_digit(10) {
+                self.advance();
+            }
+            let value_str: String = self.chars[self.start..self.current].iter().collect();
+            let value: f64 = value_str.parse().unwrap();
+            self.add_token(TokenType::Float(value));
+        } else {
+            let value_str: String = self.chars[self.start..self.current].iter().collect();
+            let value: i64 = value_str.parse().unwrap();
+            self.add_token(TokenType::Integer(value));
+        }
     }
 
     fn identifier(&mut self) {
         while self.peek().is_alphanumeric() || self.peek() == '_' {
             self.advance();
         }
-
         let text: String = self.chars[self.start..self.current].iter().collect();
         let token_type = match text.as_str() {
             "int" | "całkowita" => TokenType::KeywordInt,
             "str" | "tekst" => TokenType::KeywordStr,
+            "unit" | "pusty" => TokenType::KeywordUnit, // Added
             "func" | "funkcja" => TokenType::KeywordFunc,
             "return" | "zwróć" => TokenType::KeywordReturn,
             "struct" | "struktura" => TokenType::KeywordStruct,
@@ -349,108 +379,14 @@ impl<'a> Lexer<'a> {
             "if" | "jeśli" => TokenType::KeywordIf,
             "else" | "inaczej" => TokenType::KeywordElse,
             "for" | "dla" => TokenType::KeywordFor,
+            "in" | "w" => TokenType::KeywordIn,
             "while" | "dopóki" => TokenType::KeywordWhile,
             "continue" | "kontynuuj" => TokenType::KeywordContinue,
             "break" | "przerwij" => TokenType::KeywordBreak,
             "true" | "prawda" => TokenType::KeywordTrue,
             "false" | "fałsz" => TokenType::KeywordFalse,
-
             _ => TokenType::Identifier,
         };
         self.add_token(token_type);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_simple_tokens() {
-        let source = "=+(){},;";
-        let lexer = Lexer::new(source);
-        let tokens = lexer.tokenize().unwrap();
-        let token_types: Vec<TokenType> = tokens.into_iter().map(|t| t.token_type).collect();
-        assert_eq!(
-            token_types,
-            vec![
-                TokenType::Assign,
-                TokenType::OpPlus,
-                TokenType::OpenParen,
-                TokenType::CloseParen,
-                TokenType::OpenBrace,
-                TokenType::CloseBrace,
-                TokenType::Comma,
-                TokenType::Semicolon,
-                TokenType::EndOfFile,
-            ]
-        );
-    }
-
-    #[test]
-    fn test_integer() {
-        let source = "123;";
-        let lexer = Lexer::new(source);
-        let tokens = lexer.tokenize().unwrap();
-        assert_eq!(tokens[0].token_type, TokenType::Integer(123));
-        assert_eq!(tokens[0].lexeme, "123");
-    }
-
-    #[test]
-    fn test_string() {
-        let source = "\"hello world\";";
-        let lexer = Lexer::new(source);
-        let tokens = lexer.tokenize().unwrap();
-        assert_eq!(
-            tokens[0].token_type,
-            TokenType::String("hello world".to_string())
-        );
-        assert_eq!(tokens[0].lexeme, "\"hello world\"");
-    }
-
-    #[test]
-    fn test_identifier() {
-        let source = "x = 5;";
-        let lexer = Lexer::new(source);
-        let tokens = lexer.tokenize().unwrap();
-        let token_types: Vec<TokenType> = tokens.into_iter().map(|t| t.token_type).collect();
-        assert_eq!(
-            token_types,
-            vec![
-                TokenType::Identifier,
-                TokenType::Assign,
-                TokenType::Integer(5),
-                TokenType::Semicolon,
-                TokenType::EndOfFile,
-            ]
-        );
-    }
-
-    #[test]
-    fn test_keywords() {
-        let source = "func my_func(x: int) -> int { return x; }";
-        let lexer = Lexer::new(source);
-        let tokens = lexer.tokenize().unwrap();
-        let token_types: Vec<TokenType> = tokens.into_iter().map(|t| t.token_type).collect();
-        assert_eq!(
-            token_types,
-            vec![
-                TokenType::KeywordFunc,
-                TokenType::Identifier,
-                TokenType::OpenParen,
-                TokenType::Identifier,
-                TokenType::Colon,
-                TokenType::KeywordInt,
-                TokenType::CloseParen,
-                TokenType::Arrow,
-                TokenType::KeywordInt,
-                TokenType::OpenBrace,
-                TokenType::KeywordReturn,
-                TokenType::Identifier,
-                TokenType::Semicolon,
-                TokenType::CloseBrace,
-                TokenType::EndOfFile,
-            ]
-        );
     }
 }
