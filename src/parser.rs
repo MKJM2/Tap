@@ -121,10 +121,7 @@ impl<'a> Parser<'a> {
         } else if self.match_token(&TokenType::KeywordEnum) {
             self.parse_enum_declaration_after_name(name)
         } else {
-            Err(self.unexpected_token(
-                "type declaration",
-                "'struct' or 'enum'",
-            ))
+            Err(self.unexpected_token("type declaration", "'struct' or 'enum'"))
         }
     }
 
@@ -188,7 +185,6 @@ impl<'a> Parser<'a> {
             } else if let Expression::Identifier(name) = expr {
                 return Ok(Statement::Assignment { name, value });
             } else if let Expression::ArrayAccess { array, index } = expr {
-                // Assuming you added ArrayAssignment to Statement AST
                 return Ok(Statement::ArrayAssignment {
                     array: *array,
                     index: *index,
@@ -457,7 +453,6 @@ impl<'a> Parser<'a> {
                 Ok(Expression::Literal(LiteralValue::Integer(val)))
             }
             TokenType::Float(val) => {
-                // Added Floats
                 self.advance();
                 Ok(Expression::Literal(LiteralValue::Float(val)))
             }
@@ -475,7 +470,6 @@ impl<'a> Parser<'a> {
                 Ok(Expression::Literal(LiteralValue::Boolean(false)))
             }
             TokenType::KeywordUnit => {
-                // Added Unit literal
                 self.advance();
                 Ok(Expression::Literal(LiteralValue::Unit))
             }

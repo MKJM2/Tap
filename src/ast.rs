@@ -11,8 +11,8 @@ pub struct Program {
 pub enum TypeAnnotation {
     Int,
     Str,
-    Bool, // Added for completeness
-    Unit, // Added for void functions
+    Bool,
+    Unit,
     Function {
         from: Box<TypeAnnotation>,
         to: Box<TypeAnnotation>,
@@ -41,7 +41,7 @@ pub enum Statement {
         property: String,
         value: Expression,
     },
-    // New: Supports arr[i] = value
+    // Supports arr[i] = value
     ArrayAssignment {
         array: Expression,
         index: Expression,
@@ -55,7 +55,7 @@ pub enum Statement {
     FunctionDef(FunctionDef),
     StructDecl(StructDecl),
     EnumDecl(EnumDecl),
-    // New: Control Flow
+    // Control Flow
     While {
         condition: Box<Expression>,
         body: Vec<Statement>,
@@ -65,7 +65,7 @@ pub enum Statement {
         iterable: Box<Expression>,
         body: Vec<Statement>,
     },
-    // Updated: Return is now optional (void returns)
+    // Return is optional (void returns)
     Return(Option<Expression>),
     Break,
     Continue,
@@ -135,7 +135,7 @@ pub enum Expression {
         op: Operator,
         right: Box<Expression>,
     },
-    // New: Unary Operations (!true, -5)
+    // Unary Operations (!true, -5)
     Unary {
         op: Operator,
         right: Box<Expression>,
@@ -190,7 +190,7 @@ pub enum Operator {
     Subtract,
     Multiply,
     Divide,
-    Modulo, // Added
+    Modulo,
 
     // Comparison
     Equal,
@@ -201,12 +201,12 @@ pub enum Operator {
     LessThanEqual,
 
     // Logic
-    And, // Added
-    Or,  // Added
+    And,
+    Or,
 
     // Unary
-    Not, // Added
-         // Negate uses 'Subtract' usually, or you can add specific 'Negate'
+    Not,
+    // Negate uses 'Subtract' usually, or you can add specific 'Negate'
 }
 
 impl fmt::Display for LiteralValue {

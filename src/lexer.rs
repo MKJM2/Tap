@@ -4,7 +4,7 @@ use std::fmt;
 pub enum TokenType {
     Identifier,
     Integer(i64),
-    Float(f64), // Added
+    Float(f64),
     String(String),
     Semicolon,
     Assign,
@@ -36,7 +36,7 @@ pub enum TokenType {
     OpDecrement,
     OpExponent,
     Arrow,    // ->
-    ArrowFat, // => (Added)
+    ArrowFat, // =>
     Equal,
     NotEqual,
     GreaterThan,
@@ -52,7 +52,7 @@ pub enum TokenType {
     Comma,
     Period,
     Lambda,     // \
-    Underscore, // _ (Added)
+    Underscore, // _
     KeywordInt,
     KeywordStr,
     KeywordFunc,
@@ -69,7 +69,7 @@ pub enum TokenType {
     KeywordElse,
     KeywordTrue,
     KeywordFalse,
-    KeywordUnit, // Added
+    KeywordUnit,
     KeywordType,
     Unknown,
     EndOfFile,
@@ -178,7 +178,7 @@ impl Lexer {
                 if self.match_char('=') {
                     self.add_token(TokenType::Equal)
                 } else if self.match_char('>') {
-                    self.add_token(TokenType::ArrowFat) // Added =>
+                    self.add_token(TokenType::ArrowFat)
                 } else {
                     self.add_token(TokenType::Assign)
                 }
@@ -371,7 +371,7 @@ impl Lexer {
         let token_type = match text.as_str() {
             "int" | "całkowita" => TokenType::KeywordInt,
             "str" | "tekst" => TokenType::KeywordStr,
-            "unit" | "pusty" => TokenType::KeywordUnit, // Added
+            "unit" | "pusty" => TokenType::KeywordUnit,
             "func" | "funkcja" => TokenType::KeywordFunc,
             "return" | "zwróć" => TokenType::KeywordReturn,
             "struct" | "struktura" => TokenType::KeywordStruct,

@@ -27,6 +27,75 @@ or [nom](https://docs.rs/nom/latest/nom/) creating parsers. People older to the 
 - VM
 - potentially experimenting into JIT compilation (but nothing too serious, I have a life)
 
+### Syntax examples
+```
+### Variable assignment ###
+x = 5;
+
+### Immutable variables by default ###
+a = 10;      # const
+mut b = 10;  # mutable
+b += 5;
+
+### Optional in-line type annotations ###
+y: int = 20;  # Type annotations can be added in-line...
+b = 3.456;    # ...or deduced (b : float64)
+
+# Lists
+z: [str] = ["John", "Smith"];
+
+# Functions (TODO: How to disambiguate between function call and declaration?)
+fib(n: int) : int = {
+    if (n < 2) {
+        n
+    } else {
+        fib(n - 1) + fib(n - 2)  # implicit return of last expression
+    }
+}
+
+# Closures (braces define lexical scope)
+gensym() : string = {
+    mut count : int = 0;
+
+    next() = {
+        count += 1
+    }
+
+    "symbol_" + next().to_string()
+}
+
+# Algebraic data types (ADTs)
+
+# sum types
+type Option[T] =
+    | Some(T)
+    | None
+
+# product types
+type Point = {
+    x : float,
+    y : float
+}
+
+
+# Match statements
+match opt {
+    Some(x) => x + 1,
+    None => 0
+};
+
+# While loops
+while x > 0 {
+    x = x - 1;
+}
+
+# For loops
+for i in [1, 2, 3] {
+    println(i);
+}
+```
+
+
 ### EBNF Grammar (WIP)
 ```ebnf
 program         = {statement} .
@@ -124,66 +193,6 @@ escape_seq      = "\" ( '"' | '\\' | "n" | "t" | "r" ) .
 
 comment         = "#" { ? any character except newline ? } "\n" .
 whitespace      = " " | "\t" | "\n" | "\r" .
-```
-
-### Syntax examples
-```
-# Variable assignment
-x = 5;
-
-# Optional type annotations
-y : int;
-y = 20;
-
-y : int = 20;  # Type annotations can be inlined
-
-# Lists
-z : [str] = ["John", "Smith"];
-
-# Lambda expressions
-f : int -> int = \x. x + 5;
-
-# Recursive functions
-func fib(n: int) : int {
-    if n < 2 {
-        return n;
-    }
-    return fib(n - 1) + fib(n - 2);
-}
-
-# Structs
-car : struct {
-    make : str,
-    model : str,
-    year_produced : int
-};
-
-# Enums
-opt : enum { Some(int), None };
-color : enum { Red, Green, Blue };
-
-# Match statements
-match opt {
-    Some(x) => x + 1,
-    None => 0
-};
-
-# If statements
-if x > 0 {
-    x = x - 1;
-} else {
-    x = 0;
-}
-
-# While loops
-while x > 0 {
-    x = x - 1;
-}
-
-# For loops
-for i in [1, 2, 3] {
-    # do something
-}
 ```
 
 ### Dependencies

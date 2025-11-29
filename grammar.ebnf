@@ -1,0 +1,128 @@
+<program> ::= <top_stmt_list>
+
+<top_stmt_list> ::= (<top_stmt>)*
+
+<top_stmt> ::= <type_decl> ";" 
+             | <let_stmt> 
+             | <expr_stmt>
+
+<expr_stmt> ::= <expr> ";"
+
+<type_decl> ::= "type" <type_name> "=" <type_ctor>
+
+<type_name> ::= <identifier>
+
+<type_ctor> ::= <sum_ctor> | <record_type>
+
+<sum_ctor> ::= <variant> ( "|" <variant> )*
+<variant> ::= <identifier> "(" <type> ")" | <identifier>
+
+<let_stmt> ::= <fn_bind> ";" | <var_bind>
+
+<fn_bind> ::= <opt_mut> <identifier> <param_list> ":" <type> "=" <block>
+
+<var_bind> ::= <opt_mut> <identifier> ( ":" <type> )? "=" <expr> ";"
+
+<opt_mut> ::= "mut" | E
+
+<expr> ::= <if_expr>
+         | <while_expr>
+         | <match_expr>
+         | <lambda_expr>
+         | <binary_expr>
+
+<block> ::= "{" <stmt_list> <expr_opt> "}"
+
+<expr_or_block> ::= <block> | <expr>
+
+<stmt_list> ::= (<stmt>)*
+
+<stmt> ::= <let_stmt> | <expr> ";"
+
+<expr_opt> ::= <expr> | E
+
+<if_expr> ::= "if" "(" <expr> ")" <block> ( "else" <block> )?
+
+<while_expr> ::= "while" "(" <expr> ")" <block>
+
+<match_expr> ::= "match" "(" <expr> ")" "{" <match_arms> "}"
+
+<match_arms> ::= (<match_arm>)*
+<match_arm> ::= "|" <pattern> "=>" <expr_or_block> <opt_comma>
+
+<opt_comma> ::= "," | E
+
+<pattern> ::= "_" 
+            | <identifier>
+            | <identifier> "(" <pattern_list>? ")"
+
+<pattern_list> ::= <pattern> ("," <pattern>)*
+
+<lambda_expr> ::= <param_list> ( ":" <type> )? "=>" <expr_or_block>
+
+<param_list> ::= "(" (<param> ("," <param>)*)? ")"
+
+<param> ::= <identifier> ":" <type>
+
+<binary_expr> ::= <unary_expr> ( <bin_op> <unary_expr> )*
+<unary_expr> ::= ( "+" | "-" | "!" )? <postfix_expr>
+
+<postfix_expr> ::= <primary> (<postfix_op>)*
+
+<postfix_op> ::= "(" <arg_list>? ")" 
+               | "." <identifier> 
+               | "::" <identifier> 
+               | "[" <expr> "]"
+
+<arg_list> ::= <expr> ("," <expr>)*
+
+<primary> ::= <literal>
+            | <identifier>
+            | "(" <expr> ")"
+            | <list_literal>
+            | <record_literal>
+            | <block>
+
+<list_literal> ::= "[" (<expr> ("," <expr>)*)? "]"
+
+<record_literal> ::= "{" <field_init> ("," <field_init>)* "}"
+
+<field_init> ::= <identifier> ":" <expr>
+
+<type> ::= <type_func>
+
+<type_func> ::= <type_primary> ( "->" <type> )?
+
+<type_primary> ::= <type_name> 
+                  | <generic_type> 
+                  | <record_type> 
+                  | "[" <type> "]"
+
+<generic_type> ::= <type_name> "[" <type> "]"
+
+<record_type> ::= "{" (<field_decl> ("," <field_decl>)*)? "}"
+
+<field_decl> ::= <identifier> ":" <type>
+
+<bin_op> ::= "+" | "-" | "*" | "/" 
+           | "==" | "!=" 
+           | "<" | "<=" | ">" | ">=" 
+           | "&&" | "||" 
+           | "+=" | "-=" | "*=" | "/="
+
+<literal> ::= <integer> | <float> | <string> | "true" | "false" | "None"
+
+<letter_lower> ::= [a-z]
+<letter_upper> ::= [A-Z]
+<underscore> ::= "_"
+
+<letter> ::= <letter_lower> | <letter_upper> | <underscore>
+<digit> ::= [0-9]
+
+<identifier> ::= <letter> ( <letter> | <digit> )*
+
+<integer> ::= <digit>+
+
+<float> ::= <digit>+ "." <digit>+
+
+<string> ::= "\"" ( <letter> | <digit> | " " )* "\""
