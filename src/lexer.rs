@@ -58,6 +58,8 @@ pub enum TokenType {
     KeywordIf,         // if
     KeywordElse,       // else
     KeywordWhile,      // while
+    KeywordFor,        // for
+    KeywordIn,         // in
     KeywordMatch,      // match
     KeywordTrue,       // true
     KeywordFalse,      // false
@@ -184,15 +186,42 @@ impl<'a> Lexer<'a> {
     fn scan_token(&mut self) {
         let c = self.peek();
         match c {
-            ';' => { self.advance(); self.add_token(TokenType::Semicolon) },
-            ',' => { self.advance(); self.add_token(TokenType::Comma) },
-            '(' => { self.advance(); self.add_token(TokenType::OpenParen) },
-            ')' => { self.advance(); self.add_token(TokenType::CloseParen) },
-            '{' => { self.advance(); self.add_token(TokenType::OpenBrace) },
-            '}' => { self.advance(); self.add_token(TokenType::CloseBrace) },
-            '[' => { self.advance(); self.add_token(TokenType::OpenBracket) },
-            ']' => { self.advance(); self.add_token(TokenType::CloseBracket) },
-            '.' => { self.advance(); self.add_token(TokenType::Dot) },
+            ';' => {
+                self.advance();
+                self.add_token(TokenType::Semicolon)
+            }
+            ',' => {
+                self.advance();
+                self.add_token(TokenType::Comma)
+            }
+            '(' => {
+                self.advance();
+                self.add_token(TokenType::OpenParen)
+            }
+            ')' => {
+                self.advance();
+                self.add_token(TokenType::CloseParen)
+            }
+            '{' => {
+                self.advance();
+                self.add_token(TokenType::OpenBrace)
+            }
+            '}' => {
+                self.advance();
+                self.add_token(TokenType::CloseBrace)
+            }
+            '[' => {
+                self.advance();
+                self.add_token(TokenType::OpenBracket)
+            }
+            ']' => {
+                self.advance();
+                self.add_token(TokenType::CloseBracket)
+            }
+            '.' => {
+                self.advance();
+                self.add_token(TokenType::Dot)
+            }
             '!' => {
                 self.advance();
                 if self.match_char('=') {
@@ -288,8 +317,13 @@ impl<'a> Lexer<'a> {
                 }
             }
             // Whitespace
-            ' ' | '\r' | '\t' => { self.advance(); } // Ignore whitespace
-            '\n' => { self.advance(); self.line += 1 },
+            ' ' | '\r' | '\t' => {
+                self.advance();
+            } // Ignore whitespace
+            '\n' => {
+                self.advance();
+                self.line += 1
+            }
 
             // Literals
             '"' => self.string(),
@@ -388,4 +422,3 @@ impl<'a> Lexer<'a> {
         );
     }
 }
-

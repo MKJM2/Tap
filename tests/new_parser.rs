@@ -2,7 +2,8 @@
 
 use tap::ast::{
     BinaryExpression, BinaryOperator, Expression, ExpressionOrBlock, LetStatement, LiteralValue,
-    Pattern, PrimaryExpression, Program, Span, TopStatement, Type, TypeConstructor, TypePrimary,
+    Pattern, PrimaryExpression, Program, RecordLiteral, Span, TopStatement, Type, TypeConstructor,
+    TypePrimary,
 };
 use tap::diagnostics::Reporter;
 use tap::lexer::{Lexer, Token};
@@ -370,6 +371,38 @@ fn test_parse_control_flow_if() {
 }
 
 #[test]
+fn test_parse_control_flow_simple_if() {
+    let source = "
+    if (x > 0) {
+        true
+    };
+    ";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::Expression(expr_stmt) => {
+            match &expr_stmt.expression {
+                Expression::If(if_expr) => {
+                    // Check condition
+                    match &*if_expr.condition {
+                        Expression::Binary(_) => {}
+                        _ => panic!("Expected binary expression in condition"),
+                    }
+                    // Check then block
+                    assert!(if_expr.then_branch.final_expression.is_some());
+                    // Ensure else block is absent
+                    assert!(if_expr.else_branch.is_none());
+                }
+                _ => panic!("Expected if expression"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
 fn test_parse_control_flow_while() {
     let source = "while (i < 10) { i += 1; }";
     let program = parse_test_source(source);
@@ -384,6 +417,31 @@ fn test_parse_control_flow_while() {
                 assert!(!while_expr.body.statements.is_empty());
             }
             _ => panic!("Expected while expression"),
+        },
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_for_expression() {
+    let source = "for i in [1, 2, 3] { i + 1; }";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::Expression(expr_stmt) => match &expr_stmt.expression {
+            Expression::For(for_expr) => {
+                assert_eq!(for_expr.iterator, "i");
+                match &*for_expr.iterable {
+                    Expression::Primary(PrimaryExpression::List(list_lit)) => {
+                        assert_eq!(list_lit.elements.len(), 3);
+                    }
+                    _ => panic!("Expected list literal for iterable"),
+                }
+                assert_eq!(for_expr.body.statements.len(), 1);
+            }
+            _ => panic!("Expected for expression"),
         },
         _ => panic!("Expected expression statement"),
     }
@@ -673,13 +731,19 @@ fn test_parse_function_call_with_arguments() {
                         tap::ast::PostfixOperator::Call { args, .. } => {
                             assert_eq!(args.len(), 2);
                             match &args[0] {
-                                Expression::Primary(PrimaryExpression::Literal(LiteralValue::Integer(val), _)) => {
+                                Expression::Primary(PrimaryExpression::Literal(
+                                    LiteralValue::Integer(val),
+                                    _,
+                                )) => {
                                     assert_eq!(*val, 1);
                                 }
                                 _ => panic!("Expected integer literal '1' for first argument"),
                             }
                             match &args[1] {
-                                Expression::Primary(PrimaryExpression::Literal(LiteralValue::Integer(val), _)) => {
+                                Expression::Primary(PrimaryExpression::Literal(
+                                    LiteralValue::Integer(val),
+                                    _,
+                                )) => {
                                     assert_eq!(*val, 2);
                                 }
                                 _ => panic!("Expected integer literal '2' for second argument"),
@@ -703,20 +767,21 @@ fn test_parse_unary_expression() {
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
-        TopStatement::Expression(expr_stmt) => {
-            match &expr_stmt.expression {
-                Expression::Unary(unary_expr) => {
-                    assert_eq!(unary_expr.operator, tap::ast::UnaryOperator::Minus);
-                    match &*unary_expr.right {
-                        Expression::Primary(PrimaryExpression::Literal(LiteralValue::Integer(val), _)) => {
-                            assert_eq!(*val, 1);
-                        }
-                        _ => panic!("Expected integer literal '1' for unary expression"),
+        TopStatement::Expression(expr_stmt) => match &expr_stmt.expression {
+            Expression::Unary(unary_expr) => {
+                assert_eq!(unary_expr.operator, tap::ast::UnaryOperator::Minus);
+                match &*unary_expr.right {
+                    Expression::Primary(PrimaryExpression::Literal(
+                        LiteralValue::Integer(val),
+                        _,
+                    )) => {
+                        assert_eq!(*val, 1);
                     }
+                    _ => panic!("Expected integer literal '1' for unary expression"),
                 }
-                _ => panic!("Expected unary expression"),
             }
-        }
+            _ => panic!("Expected unary expression"),
+        },
         _ => panic!("Expected expression statement"),
     }
 }
@@ -760,26 +825,30 @@ fn test_parse_boolean_expression() {
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
-        TopStatement::Expression(expr_stmt) => {
-            match &expr_stmt.expression {
-                Expression::Binary(bin_expr) => {
-                    assert_eq!(bin_expr.operator, tap::ast::BinaryOperator::Equal);
-                    match &*bin_expr.left {
-                        Expression::Primary(PrimaryExpression::Literal(LiteralValue::Boolean(val), _)) => {
-                            assert_eq!(*val, true);
-                        }
-                        _ => panic!("Expected boolean literal 'true' on the left side"),
+        TopStatement::Expression(expr_stmt) => match &expr_stmt.expression {
+            Expression::Binary(bin_expr) => {
+                assert_eq!(bin_expr.operator, tap::ast::BinaryOperator::Equal);
+                match &*bin_expr.left {
+                    Expression::Primary(PrimaryExpression::Literal(
+                        LiteralValue::Boolean(val),
+                        _,
+                    )) => {
+                        assert_eq!(*val, true);
                     }
-                    match &*bin_expr.right {
-                        Expression::Primary(PrimaryExpression::Literal(LiteralValue::Boolean(val), _)) => {
-                            assert_eq!(*val, false);
-                        }
-                        _ => panic!("Expected boolean literal 'false' on the right side"),
-                    }
+                    _ => panic!("Expected boolean literal 'true' on the left side"),
                 }
-                _ => panic!("Expected binary expression"),
+                match &*bin_expr.right {
+                    Expression::Primary(PrimaryExpression::Literal(
+                        LiteralValue::Boolean(val),
+                        _,
+                    )) => {
+                        assert_eq!(*val, false);
+                    }
+                    _ => panic!("Expected boolean literal 'false' on the right side"),
+                }
             }
-        }
+            _ => panic!("Expected binary expression"),
+        },
         _ => panic!("Expected expression statement"),
     }
 }
@@ -792,15 +861,159 @@ fn test_parse_string_literal_expression() {
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
+        TopStatement::Expression(expr_stmt) => match &expr_stmt.expression {
+            Expression::Primary(PrimaryExpression::Literal(LiteralValue::String(val), _)) => {
+                assert_eq!(val, "hello world");
+            }
+            _ => panic!("Expected string literal expression"),
+        },
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_float_literal_expression() {
+    let source = "3.14;";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::Expression(expr_stmt) => match &expr_stmt.expression {
+            Expression::Primary(PrimaryExpression::Literal(LiteralValue::Float(val), _)) => {
+                assert_eq!(*val, 3.14);
+            }
+            _ => panic!("Expected float literal expression"),
+        },
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_none_literal_expression() {
+    let source = "None;";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
         TopStatement::Expression(expr_stmt) => {
             match &expr_stmt.expression {
-                Expression::Primary(PrimaryExpression::Literal(LiteralValue::String(val), _)) => {
-                    assert_eq!(val, "hello world");
+                Expression::Primary(PrimaryExpression::Literal(LiteralValue::None, _)) => {
+                    // Successfully parsed None literal
                 }
-                _ => panic!("Expected string literal expression"),
+                _ => panic!("Expected None literal expression"),
             }
         }
         _ => panic!("Expected expression statement"),
     }
 }
 
+#[test]
+fn test_parse_record_literal() {
+    let source = "point = { x: 1, y: 2 };";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::LetStmt(LetStatement::Variable(bind)) => {
+            assert_eq!(bind.name, "point");
+            match &bind.value {
+                Expression::Primary(PrimaryExpression::Record(record_lit, _)) => {
+                    assert_eq!(record_lit.fields.len(), 2);
+                    assert_eq!(record_lit.fields[0].name, "x");
+                    match &record_lit.fields[0].value {
+                        Expression::Primary(PrimaryExpression::Literal(
+                            LiteralValue::Integer(val),
+                            _,
+                        )) => {
+                            assert_eq!(*val, 1);
+                        }
+                        _ => panic!("Expected integer literal for field 'x'"),
+                    }
+                    assert_eq!(record_lit.fields[1].name, "y");
+                    match &record_lit.fields[1].value {
+                        Expression::Primary(PrimaryExpression::Literal(
+                            LiteralValue::Integer(val),
+                            _,
+                        )) => {
+                            assert_eq!(*val, 2);
+                        }
+                        _ => panic!("Expected integer literal for field 'y'"),
+                    }
+                }
+                _ => panic!("Expected record literal expression"),
+            }
+        }
+        _ => panic!("Expected variable binding"),
+    }
+}
+
+#[test]
+fn test_parse_field_access() {
+    let source = "point.x;";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::Expression(expr_stmt) => {
+            match &expr_stmt.expression {
+                Expression::Postfix(postfix) => {
+                    // Check the primary: point
+                    match &*postfix.primary {
+                        Expression::Primary(PrimaryExpression::Identifier(ident, _)) => {
+                            assert_eq!(ident, "point");
+                        }
+                        _ => panic!("Expected identifier 'point' for primary expression"),
+                    }
+
+                    assert_eq!(postfix.operators.len(), 1);
+                    match &postfix.operators[0] {
+                        tap::ast::PostfixOperator::Field { name, .. } => {
+                            assert_eq!(name, "x");
+                        }
+                        _ => panic!("Expected Field access postfix operator"),
+                    }
+                }
+                _ => panic!("Expected postfix expression"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_path_resolution() {
+    let source = "Option::Some;";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::Expression(expr_stmt) => {
+            match &expr_stmt.expression {
+                Expression::Postfix(postfix) => {
+                    // Check the primary: Option
+                    match &*postfix.primary {
+                        Expression::Primary(PrimaryExpression::Identifier(ident, _)) => {
+                            assert_eq!(ident, "Option");
+                        }
+                        _ => panic!("Expected identifier 'Option' for primary expression"),
+                    }
+
+                    assert_eq!(postfix.operators.len(), 1);
+                    match &postfix.operators[0] {
+                        tap::ast::PostfixOperator::Path { name, .. } => {
+                            assert_eq!(name, "Some");
+                        }
+                        _ => panic!("Expected Path resolution postfix operator"),
+                    }
+                }
+                _ => panic!("Expected postfix expression"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}

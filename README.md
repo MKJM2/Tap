@@ -102,6 +102,14 @@ print_numbers(n: int): int = {
     i
 }
 
+// For loop
+for i in [1, 2, 3, 4, 5] {
+    print(i);
+}
+
+for fruit in fruits {
+    print(fruit); //  "apple" "banana" "cherry"
+}
 
 // Pattern Matching
 
@@ -228,105 +236,141 @@ complex_expr(): int = {
 }
 ```
 
-
-### EBNF Grammar (WIP)
+# EBNF (WIP)
 ```ebnf
-program         = {statement} .
+<program> ::= <top_stmt_list>
 
-statement       = assignment ";"
-                | var_decl ";"
-                | expression ";"
-                | return_stmt
-                | function_def
-                | struct_decl
-                | enum_decl
-                | if_stmt
-                | match_stmt
-                | while_loop
-                | for_loop .
+<top_stmt_list> ::= (<top_stmt>)*
 
-var_decl        = ident ":" type-annotation .
-assignment      = ident [ ":" type-annotation ] "=" expression .
-return_stmt     = "return" expression ";" .
+<top_stmt> ::= <type_decl> ";"
+             | <let_stmt>
+             | <expr_stmt>
 
-struct_decl     = ident ":" struct_type ";" .
-enum_decl       = ident ":" enum_type ";" .
+<expr_stmt> ::= <expr> ";"
 
-if_stmt         = "if" expression block [ "else" block ] .
-block           = "{" {statement} "}" .
+<type_decl> ::= "type" <type_name> "=" <type_ctor>
 
-match_stmt      = "match" expression "{" match_arm { match_arm } "}" .
-match_arm       = pattern "=>" expression ";" .
-pattern         = ident
-                | literal
-                | list_pattern
-                | struct_pattern
-                | variant_pattern .
+<type_name> ::= <identifier>
 
-list_pattern    = "[" [ pattern { "," pattern } ] "]" .
-struct_pattern  = "struct" "{" field_pattern { "," field_pattern } "}" .
-field_pattern   = ident ":" pattern .
-variant_pattern = ident "(" pattern { "," pattern } ")" .
+<type_ctor> ::= <sum_ctor> | <record_type>
 
-while_loop      = "while" expression block .
-for_loop        = "for" ident "in" expression block .
+<sum_ctor> ::= <variant> ( "|" <variant> )*
+<variant> ::= <identifier> "(" <type> ")" | <identifier>
 
-expression      = term { ("+" | "-") term } .
-term            = factor { ("*" | "/") factor } .
-factor          = literal
-                | ident
-                | list
-                | lambda
-                | if_stmt // TODO: Make if_stmt an if_expression instead and remove from expressions?
-                | function_call
-                | list_access
-                | "(" expression ")" .
+<let_stmt> ::= <fn_bind> | <var_bind>
 
-literal         = integer | float | string | "true" | "false" .
+<fn_bind> ::= <opt_mut> <identifier> <param_list> ":" <type> "=" <block>
 
-list            = "[" [ expression { "," expression } ] "]" .
-lambda          = "\"" ident { ident } "." expression .
-function_call   = ident "(" arglist ")" .
-list_access     = ident "[" expression "]" .
+<var_bind> ::= <opt_mut> <identifier> ( ":" <type> )? "=" <expr> ";"
 
-function_def    = "func" ident "(" typed-arglist ")" [ ":" type-annotation ] "{" {statement} "}" .
+<opt_mut> ::= "mut" | E
 
-arglist         = [ expression { "," expression } ] .
-typed-arglist   = [ typed_param { "," typed_param } ] .
-typed_param     = ident [ ":" type-annotation ] .
+<expr> ::= <if_expr>
+         | <while_expr>
+         | <for_expr>
+         | <match_expr>
+         | <lambda_expr>
+         | <binary_expr>
 
-type-annotation = function_type
-                | array_type
-                | struct_type
-                | enum_type
-                | type-ident
-                | "(" type-annotation ")" .
+<block> ::= "{" <stmt_list> <expr_opt> "}"
 
-function_type   = type-ident "->" type-annotation .
-array_type      = "[" type-annotation "]" .
-struct_type     = "struct" "{" field { "," field } "}" .
-enum_type       = "enum" "{" variant { "," variant } "}" .
-field           = ident ":" type-annotation .
-variant         = ident [ "(" type-annotation { "," type-annotation } ")" ] .
+<expr_or_block> ::= <block> | <expr>
 
-type-ident      = primitive_type | ident .
-primitive_type  = "int" | "str" | "float" | "bool" | "unit" .
+<stmt_list> ::= (<stmt>)*
 
-ident           = letter { letter | digit | "_" } .
-letter          = "a"..."z" | "A"..."Z" .
-digit           = "0"..."9" .
+<stmt> ::= <let_stmt> | <expr> ";"
 
-integer         = digit {digit} .
-float           = digit {digit} "." digit {digit} [ exponent ] .
-exponent        = ("e" | "E") ["+" | "-"] digit {digit} .
+<expr_opt> ::= <expr> | E
 
-string          = '"' { char } '"' .
-char            = ? any character except ", \, and newline ? | escape_seq .
-escape_seq      = "\" ( '"' | '\\' | "n" | "t" | "r" ) .
+<if_expr> ::= "if" "(" <expr> ")" <block> ( "else" <block> )?
 
-comment         = "#" { ? any character except newline ? } "\n" .
-whitespace      = " " | "\t" | "\n" | "\r" .
+<while_expr> ::= "while" "(" <expr> ")" <block>
+
+<for_expr> ::= "for" <pattern> "in" <expr> <block>
+
+<match_expr> ::= "match" "(" <expr> ")" "{" <match_arms> "}"
+
+<match_arms> ::= (<match_arm>)*
+<match_arm> ::= "|" <pattern> "=>" <expr_or_block> <opt_comma>
+
+<opt_comma> ::= "," | E
+
+<pattern> ::= "_"
+            | <identifier>
+            | <identifier> "(" <pattern_list>? ")"
+
+<pattern_list> ::= <pattern> ("," <pattern>)*
+
+<lambda_expr> ::= <param_list> ( ":" <type> )? "=>" <expr_or_block>
+
+<param_list> ::= "(" (<param> ("," <param>)*)? ")"
+
+<param> ::= <identifier> ":" <type>
+
+<binary_expr> ::= <unary_expr> ( <bin_op> <unary_expr> )*
+<unary_expr> ::= ( "+" | "-" | "!" )? <postfix_expr>
+
+<postfix_expr> ::= <primary> (<postfix_op>)*
+
+<postfix_op> ::= "(" <arg_list>? ")"
+               | "." <identifier>
+               | "::" <identifier>
+               | "[" <expr> "]"
+
+<arg_list> ::= <expr> ("," <expr>)*
+
+<primary> ::= <literal>
+            | <identifier>
+            | "(" <expr> ")"
+            | <list_literal>
+            | <record_literal>
+            | <block>
+
+<list_literal> ::= "[" (<expr> ("," <expr>)*)? "]"
+
+<record_literal> ::= "{" <field_init> ("," <field_init>)* "}"
+
+<field_init> ::= <identifier> ":" <expr>
+
+<type> ::= <type_func>
+
+<type_func> ::= <type_primary> ( "->" <type> )?
+
+<type_primary> ::= <type_name>
+                  | <generic_type>
+                  | <record_type>
+                  | "[" <type> "]"
+
+<generic_type> ::= <type_name> "[" <type> "]"
+
+<record_type> ::= "{" (<field_decl> ("," <field_decl>)*)? "}"
+
+<field_decl> ::= <identifier> ":" <type>
+
+<bin_op> ::= "+" | "-" | "*" | "/"
+           | "==" | "!="
+           | "<" | "<=" | ">" | ">="
+           | "&&" | "||"
+           | "+=" | "-=" | "*=" | "/="
+
+<literal> ::= <integer> | <float> | <string> | "true" | "false" | "None"
+
+<letter_lower> ::= [a-z]
+<letter_upper> ::= [A-Z]
+<underscore> ::= "_"
+
+<letter> ::= <letter_lower> | <letter_upper> | <underscore>
+<digit> ::= [0-9]
+
+<identifier> ::= <letter> ( <letter> | <digit> )*
+
+<integer> ::= <digit>+
+
+<float> ::= <digit>+ "." <digit>+
+
+<string> ::= "\"" ( <letter> | <digit> | " " )* "\""
 ```
+
 
 ### Dependencies
 - Rust 1.70+

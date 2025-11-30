@@ -27,6 +27,7 @@
 
 <expr> ::= <if_expr>
          | <while_expr>
+         | <for_expr>
          | <match_expr>
          | <lambda_expr>
          | <binary_expr>
@@ -44,6 +45,8 @@
 <if_expr> ::= "if" "(" <expr> ")" <block> ( "else" <block> )?
 
 <while_expr> ::= "while" "(" <expr> ")" <block>
+
+<for_expr> ::= "for" <pattern> "in" <expr> <block>
 
 <match_expr> ::= "match" "(" <expr> ")" "{" <match_arms> "}"
 

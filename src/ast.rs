@@ -44,7 +44,6 @@ impl TopStatement {
     }
 }
 
-
 /// Represents a type declaration: `type <type_name> = <type_ctor>`
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeDeclaration {
@@ -224,6 +223,7 @@ pub struct FieldDeclaration {
 pub enum Expression {
     If(IfExpression),
     While(WhileExpression),
+    For(ForExpression),
     Match(MatchExpression),
     Lambda(LambdaExpression),
     Binary(BinaryExpression),
@@ -238,6 +238,7 @@ impl Expression {
         match self {
             Expression::If(expr) => expr.span,
             Expression::While(expr) => expr.span,
+            Expression::For(expr) => expr.span,
             Expression::Match(expr) => expr.span,
             Expression::Lambda(expr) => expr.span,
             Expression::Binary(expr) => expr.span,
@@ -262,6 +263,15 @@ pub struct IfExpression {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhileExpression {
     pub condition: Box<Expression>,
+    pub body: Block,
+    pub span: Span,
+}
+
+/// Represents a for expression: `"for" <pattern> "in" <expr> <block>`
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForExpression {
+    pub pattern: Pattern,
+    pub iterable: Box<Expression>,
     pub body: Block,
     pub span: Span,
 }
@@ -301,7 +311,7 @@ impl ExpressionOrBlock {
 /// Represents a pattern in a match arm.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
-    Wildcard(Span), // "_"
+    Wildcard(Span),           // "_"
     Identifier(String, Span), // e.g., "x"
     Variant {
         name: String,
@@ -357,22 +367,10 @@ pub struct PostfixExpression {
 /// Represents a postfix operator.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PostfixOperator {
-    Call {
-        args: Vec<Expression>,
-        span: Span,
-    }, // "(" <arg_list>? ")"
-    FieldAccess {
-        name: String,
-        span: Span,
-    }, // "." <identifier>
-    TypePath {
-        name: String,
-        span: Span,
-    }, // "::" <identifier>
-    ListAccess {
-        index: Box<Expression>,
-        span: Span,
-    }, // "[" <expr> "]"
+    Call { args: Vec<Expression>, span: Span }, // "(" <arg_list>? ")"
+    FieldAccess { name: String, span: Span },   // "." <identifier>
+    TypePath { name: String, span: Span },      // "::" <identifier>
+    ListAccess { index: Box<Expression>, span: Span }, // "[" <expr> "]"
 }
 
 impl PostfixOperator {

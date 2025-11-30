@@ -15,26 +15,29 @@
 
 ## Parser
 
-- [ ] Test that the parser correctly parses a simple let statement.
-- [ ] Test that the parser correctly parses a let statement with a type annotation.
-- [ ] Test that the parser correctly parses a mutable let statement.
-- [ ] Test that the parser correctly parses a function definition.
-- [ ] Test that the parser correctly parses a function definition with parameters.
-- [ ] Test that the parser correctly parses a function definition with a return type.
-- [ ] Test that the parser correctly parses a struct definition.
-- [ ] Test that the parser correctly parses a struct definition with fields.
-- [ ] Test that the parser correctly parses an enum definition.
-- [ ] Test that the parser correctly parses an enum definition with variants.
-- [ ] Test that the parser correctly parses an if expression.
-- [ ] Test that the parser correctly parses an if-else expression.
-- [ ] Test that the parser correctly parses a while expression.
-- [ ] Test that the parser correctly parses a for expression.
-- [ ] Test that the parser correctly parses a match expression.
-- [ ] Test that the parser correctly parses a block expression.
-- [ ] Test that the parser correctly parses a unary expression.
-- [ ] Test that the parser correctly parses a binary expression.
-- [ ] Test that the parser correctly parses a postfix expression.
-- [ ] Test that the parser correctly parses a primary expression.
+- [x] Test that the parser correctly parses a simple let statement.
+- [x] Test that the parser correctly parses a let statement with a type annotation.
+- [x] Test that the parser correctly parses a mutable let statement.
+- [x] Test that the parser correctly parses a function definition.
+- [x] Test that the parser correctly parses a function definition with parameters.
+- [x] Test that the parser correctly parses a function definition with a return type.
+- [x] Test that the parser correctly parses a struct definition.
+- [x] Test that the parser correctly parses a struct definition with fields.
+- [x] Test that the parser correctly parses an enum definition.
+- [x] Test that the parser correctly parses an enum definition with variants.
+- [x] Test that the parser correctly parses an if expression.
+- [x] Test that the parser correctly parses an if-else expression.
+- [x] Test that the parser correctly parses a while expression.
+- [x] Test that the parser correctly parses a for expression.
+- [x] Test that the parser correctly parses a match expression.
+- [x] Test that the parser correctly parses a block expression.
+- [x] Test that the parser correctly parses a unary expression.
+- [x] Test that the parser correctly parses a binary expression.
+- [x] Test that the parser correctly parses a postfix expression.
+- [x] Test that the parser correctly parses a primary expression.
+- [x] Test that the parser correctly parses a record literal expression.
+- [x] Test that the parser correctly parses a field access expression.
+- [x] Test that the parser correctly parses a path resolution expression.
 
 ## Interpreter
 

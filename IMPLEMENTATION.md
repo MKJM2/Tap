@@ -15,8 +15,8 @@ There are some parser tests already written, but they are not enough. You will h
 
 Periodically refer back to this file to recall your top-level goals.
 
+---
 
-----
 ### Additional context that was used previously
 
 The lexer should handle Unicode correctly (use .chars()) as we will have to handle Polish language syntax eventually.
@@ -38,7 +38,6 @@ Start by generating tests for the language. Do good Test Driver Development. Any
 by referencing the grammar.ebnf file. It is the single source of truth on the grammar. For a basic source of tests look into the
 top-level TESTS.md file. You WILL HAVE to update this file, checking off implemented tests as you implement more tests.
 
-
-
 ---
-*Remember to follow the main instructions above carefully*
+
+_Remember to follow the main instructions above carefully_
