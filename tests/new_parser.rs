@@ -5,35 +5,50 @@ use tap::ast::{
     Pattern, PrimaryExpression, Program, Span, TopStatement, Type, TypeConstructor, TypePrimary,
 };
 use tap::diagnostics::Reporter;
-use tap::lexer::Lexer;
+use tap::lexer::{Lexer, Token};
 use tap::parser::Parser;
 
 // --- TEST HELPER ---
 
-fn parse_test_source(source: &str) -> Program {
+fn assert_parses(source: &str) -> Program {
     let mut reporter = Reporter::new();
-    let tokens = Lexer::new(source, &mut reporter)
-        .tokenize()
-        .unwrap_or_else(|_| panic!("Lexing failed for source: {}", source));
+    let tokens = match Lexer::new(source, &mut reporter).tokenize() {
+        Ok(tokens) => tokens,
+        Err(_) => {
+            panic!(
+                "Lexing failed for source: \"{}\"\n\nLexer Errors:\n{:?}",
+                source.trim(),
+                reporter.diagnostics
+            );
+        }
+    };
 
     let mut parser = Parser::new(&tokens, &mut reporter);
-    let program = parser.parse_program().unwrap_or_else(|e| {
-        panic!(
-            "Parsing failed for source: \"{}\"\n\nError Report:\n{:?}",
-            source.trim(),
-            e
-        )
-    });
-
-    if reporter.has_errors() {
-        panic!(
-            "Parsing failed for source: \"{}\"\n\nReporter Errors:\n{:?}",
-            source.trim(),
-            reporter.diagnostics
-        );
+    match parser.parse_program() {
+        Ok(program) => {
+            if reporter.has_errors() {
+                panic!(
+                    "Parsing failed with reporter errors for source: \"{}\"\n\nTokens:\n{:?}\n\nParser Errors:\n{:?}",
+                    source.trim(),
+                    tokens,
+                    reporter.diagnostics
+                );
+            }
+            program
+        }
+        Err(e) => {
+            panic!(
+                "Parsing failed for source: \"{}\"\n\nTokens:\n{:?}\n\nError Report:\n{:?}",
+                source.trim(),
+                tokens,
+                e
+            );
+        }
     }
+}
 
-    program
+fn parse_test_source(source: &str) -> Program {
+    assert_parses(source)
 }
 
 #[test]
@@ -271,6 +286,29 @@ fn test_parse_enum_definition() {
 }
 
 #[test]
+fn test_parse_simple_enum_definition() {
+    let source = "type A = B;";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::TypeDecl(decl) => {
+            assert_eq!(decl.name, "A");
+            match &decl.constructor {
+                TypeConstructor::Sum(sum_type) => {
+                    assert_eq!(sum_type.variants.len(), 1);
+                    assert_eq!(sum_type.variants[0].name, "B");
+                    assert!(sum_type.variants[0].ty.is_none());
+                }
+                _ => panic!("Expected sum constructor"),
+            }
+        }
+        _ => panic!("Expected type declaration"),
+    }
+}
+
+#[test]
 fn test_parse_enum_definition_with_variants() {
     let source = "type MaybeInt = Some(int) | None;";
     let program = parse_test_source(source);
@@ -497,3 +535,272 @@ fn test_operator_precedence() {
         _ => panic!("Expected expression statement"),
     }
 }
+
+#[test]
+fn test_parse_complex_struct_definition() {
+    let source = "
+    type User = {
+        id: int,
+        username: string,
+        is_active: bool,
+    };
+    ";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::TypeDecl(decl) => {
+            assert_eq!(decl.name, "User");
+            match &decl.constructor {
+                TypeConstructor::Record(record_type) => {
+                    assert_eq!(record_type.fields.len(), 3);
+                    assert_eq!(record_type.fields[0].name, "id");
+                    if let Type::Primary(TypePrimary::Named(name, _)) = &record_type.fields[0].ty {
+                        assert_eq!(name, "int");
+                    } else {
+                        panic!("Expected named type for field 'id'");
+                    }
+                    assert_eq!(record_type.fields[1].name, "username");
+                    if let Type::Primary(TypePrimary::Named(name, _)) = &record_type.fields[1].ty {
+                        assert_eq!(name, "string");
+                    } else {
+                        panic!("Expected named type for field 'username'");
+                    }
+                    assert_eq!(record_type.fields[2].name, "is_active");
+                    if let Type::Primary(TypePrimary::Named(name, _)) = &record_type.fields[2].ty {
+                        assert_eq!(name, "bool");
+                    } else {
+                        panic!("Expected named type for field 'is_active'");
+                    }
+                }
+                _ => panic!("Expected record constructor"),
+            }
+        }
+        _ => panic!("Expected type declaration"),
+    }
+}
+
+#[test]
+fn test_parse_block_expression() {
+    let source = "
+    x = {
+        a = 1;
+        b = 2;
+        a + b
+    };
+    ";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::LetStmt(LetStatement::Variable(bind)) => {
+            assert_eq!(bind.name, "x");
+            match &bind.value {
+                Expression::Block(block) => {
+                    assert_eq!(block.statements.len(), 2);
+                    assert!(block.final_expression.is_some());
+                }
+                _ => panic!("Expected block expression"),
+            }
+        }
+        _ => panic!("Expected variable binding"),
+    }
+}
+
+#[test]
+fn test_parse_nested_if_expression() {
+    let source = "
+    result = if (x > 0) {
+        if (y > 0) {
+            1
+        } else {
+            -1
+        }
+    } else {
+        0
+    };
+    ";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::LetStmt(LetStatement::Variable(bind)) => {
+            assert_eq!(bind.name, "result");
+            match &bind.value {
+                Expression::If(if_expr) => {
+                    assert!(if_expr.else_branch.is_some());
+                    match &if_expr.then_branch.final_expression {
+                        Some(expr) => match &**expr {
+                            Expression::If(_) => {
+                                // Nested if expression is present.
+                            }
+                            _ => panic!("Expected nested if expression"),
+                        },
+                        None => panic!("Expected final expression in then branch"),
+                    }
+                }
+                _ => panic!("Expected if expression"),
+            }
+        }
+        _ => panic!("Expected variable binding"),
+    }
+}
+
+#[test]
+fn test_parse_function_call_with_arguments() {
+    let source = "add(1, 2);";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::Expression(expr_stmt) => {
+            match &expr_stmt.expression {
+                Expression::Postfix(postfix) => {
+                    // Check the primary: add
+                    match &*postfix.primary {
+                        Expression::Primary(PrimaryExpression::Identifier(ident, _)) => {
+                            assert_eq!(ident, "add");
+                        }
+                        _ => panic!("Expected identifier 'add' for primary expression"),
+                    }
+
+                    assert_eq!(postfix.operators.len(), 1);
+                    match &postfix.operators[0] {
+                        tap::ast::PostfixOperator::Call { args, .. } => {
+                            assert_eq!(args.len(), 2);
+                            match &args[0] {
+                                Expression::Primary(PrimaryExpression::Literal(LiteralValue::Integer(val), _)) => {
+                                    assert_eq!(*val, 1);
+                                }
+                                _ => panic!("Expected integer literal '1' for first argument"),
+                            }
+                            match &args[1] {
+                                Expression::Primary(PrimaryExpression::Literal(LiteralValue::Integer(val), _)) => {
+                                    assert_eq!(*val, 2);
+                                }
+                                _ => panic!("Expected integer literal '2' for second argument"),
+                            }
+                        }
+                        _ => panic!("Expected Call postfix operator"),
+                    }
+                }
+                _ => panic!("Expected postfix expression"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_unary_expression() {
+    let source = "-1;";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::Expression(expr_stmt) => {
+            match &expr_stmt.expression {
+                Expression::Unary(unary_expr) => {
+                    assert_eq!(unary_expr.operator, tap::ast::UnaryOperator::Minus);
+                    match &*unary_expr.right {
+                        Expression::Primary(PrimaryExpression::Literal(LiteralValue::Integer(val), _)) => {
+                            assert_eq!(*val, 1);
+                        }
+                        _ => panic!("Expected integer literal '1' for unary expression"),
+                    }
+                }
+                _ => panic!("Expected unary expression"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_parenthesized_expression() {
+    let source = "(1 + 2) * 3;";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::Expression(expr_stmt) => {
+            match &expr_stmt.expression {
+                Expression::Binary(bin_expr) => {
+                    assert_eq!(bin_expr.operator, tap::ast::BinaryOperator::Multiply);
+                    match &*bin_expr.left {
+                        Expression::Primary(PrimaryExpression::Parenthesized(expr, _)) => {
+                            match &**expr {
+                                Expression::Binary(_) => {
+                                    // Correctly parsed as a binary expression inside parentheses.
+                                }
+                                _ => panic!("Expected binary expression inside parentheses"),
+                            }
+                        }
+                        _ => panic!("Expected parenthesized expression on the left side"),
+                    }
+                }
+                _ => panic!("Expected binary expression"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_boolean_expression() {
+    let source = "true == false;";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::Expression(expr_stmt) => {
+            match &expr_stmt.expression {
+                Expression::Binary(bin_expr) => {
+                    assert_eq!(bin_expr.operator, tap::ast::BinaryOperator::Equal);
+                    match &*bin_expr.left {
+                        Expression::Primary(PrimaryExpression::Literal(LiteralValue::Boolean(val), _)) => {
+                            assert_eq!(*val, true);
+                        }
+                        _ => panic!("Expected boolean literal 'true' on the left side"),
+                    }
+                    match &*bin_expr.right {
+                        Expression::Primary(PrimaryExpression::Literal(LiteralValue::Boolean(val), _)) => {
+                            assert_eq!(*val, false);
+                        }
+                        _ => panic!("Expected boolean literal 'false' on the right side"),
+                    }
+                }
+                _ => panic!("Expected binary expression"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_string_literal_expression() {
+    let source = "\"hello world\";";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::Expression(expr_stmt) => {
+            match &expr_stmt.expression {
+                Expression::Primary(PrimaryExpression::Literal(LiteralValue::String(val), _)) => {
+                    assert_eq!(val, "hello world");
+                }
+                _ => panic!("Expected string literal expression"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+

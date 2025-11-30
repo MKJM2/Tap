@@ -31,6 +31,7 @@ pub enum TokenType {
     Star,             // *
     Slash,            // /
     AmpAmp,           // &&
+    Pipe,             // |
     PipePipe,         // ||
 
     // Compound assignment operators
@@ -275,7 +276,7 @@ impl<'a> Lexer<'a> {
                 if self.match_char('|') {
                     self.add_token(TokenType::PipePipe);
                 } else {
-                    self.error(self.current - 1, "Unexpected character '|'.");
+                    self.add_token(TokenType::Pipe);
                 }
             }
             ':' => {
