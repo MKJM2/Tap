@@ -1,11 +1,4 @@
-use crate::ast::{
-    BinaryExpression, BinaryOperator, Block, Expression, ExpressionOrBlock, ExpressionStatement,
-    FieldDeclaration, FieldInitializer, ForExpression, FunctionBinding, IfExpression,
-    LambdaExpression, LetStatement, ListLiteral, LiteralValue, MatchArm, MatchExpression,
-    Parameter, Pattern, PostfixOperator, PrimaryExpression, Program, RecordLiteral, RecordType,
-    Span, Statement, SumConstructor, TopStatement, Type, TypeConstructor, TypeDeclaration,
-    TypePrimary, UnaryExpression, UnaryOperator, VariableBinding, Variant, WhileExpression,
-};
+use crate::ast::*;
 use crate::diagnostics::{Diagnostic, DiagnosticKind, Reporter};
 use crate::lexer::{Token, TokenType};
 
@@ -93,7 +86,7 @@ impl<'a> Parser<'a> {
         }
 
         // Handle while loops
-        if self.is_contextual_keyword("while") {
+        if self.check(TokenType::KeywordWhile) {
             let expr = self.parse_while_statement()?;
             let span = expr.span();
             return Ok(TopStatement::Expression(ExpressionStatement {
@@ -102,7 +95,7 @@ impl<'a> Parser<'a> {
             }));
         }
 
-        // Handle for loops
+        // Handle for loops (contextual keyword)
         if self.is_contextual_keyword("for") {
             let expr = self.parse_for_statement()?;
             let span = expr.span();
@@ -206,73 +199,71 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type_constructor(&mut self) -> Result<TypeConstructor, ParseError> {
-        // Check if it's a record type
+        let saved_pos = self.current;
+
+        // Case 1: RecordType (starts with '{')
         if self.check(TokenType::OpenBrace) {
             let record = self.parse_record_type()?;
             return Ok(TypeConstructor::Record(record));
         }
 
-        // Parse first variant/type
-        let first = self.parse_type_variant()?;
-
-        // Check if there's a pipe (sum type)
-        if self.check(TokenType::Pipe) {
-            let mut variants = vec![first];
-            while self.match_token(&[TokenType::Pipe]) {
-                variants.push(self.parse_type_variant()?);
-            }
-            let span = Span::new(variants[0].span, variants.last().unwrap().span);
-            return Ok(TypeConstructor::Sum(SumConstructor { variants, span }));
-        }
-
-        // Single type - it's an alias
-        Ok(TypeConstructor::Alias(Type::Primary(first)))
-    }
-
-    fn parse_type_variant(&mut self) -> Result<TypePrimary, ParseError> {
-        let token = self.peek().clone();
-
-        match &token.token_type {
-            TokenType::Identifier(name) => {
-                self.advance();
-
-                // Check for variant with payload: Some(int)
-                if self.check(TokenType::OpenParen) {
-                    // This is actually a Variant for a SumConstructor
-                    // We need to return something that can represent this
-                    // For now, treat as Named and let the caller handle it
-                    Ok(TypePrimary::Named(name.clone(), token.span))
+        // Case 2: Try to parse a SumConstructor
+        match self.parse_variant() {
+            Ok(first_variant) => {
+                if self.check(TokenType::Pipe) {
+                    let mut variants = vec![first_variant.clone()];
+                    while self.match_token(&[TokenType::Pipe]) {
+                        variants.push(self.parse_variant()?);
+                    }
+                    let end_span = variants
+                        .last()
+                        .map(|v| v.span)
+                        .unwrap_or(first_variant.span);
+                    let sum_span = Span::new(first_variant.span.start, end_span.end);
+                    return Ok(TypeConstructor::Sum(SumConstructor {
+                        variants,
+                        span: sum_span,
+                    }));
                 } else {
-                    Ok(TypePrimary::Named(name.clone(), token.span))
+                    let span = first_variant.span;
+                    return Ok(TypeConstructor::Sum(SumConstructor {
+                        variants: vec![first_variant],
+                        span,
+                    }));
                 }
             }
-            TokenType::OpenBrace => {
-                let record = self.parse_record_type()?;
-                Ok(TypePrimary::Record(record))
-            }
-            _ => {
-                let msg = format!("Expected type variant, but found {:?}.", token.token_type);
-                Err(self.error(token.span, msg, Some("while parsing a type variant")))
+            Err(_) => {
+                self.current = saved_pos;
             }
         }
+
+        // Case 3: Simple Type Alias
+        let alias_type = self.parse_type()?;
+        Ok(TypeConstructor::Alias(alias_type))
     }
 
-    // Updated to parse variants with payloads for sum types
-    fn parse_sum_variant(&mut self) -> Result<Variant, ParseError> {
+    fn parse_variant(&mut self) -> Result<Variant, ParseError> {
         let name_token = self.peek().clone();
-        let name = if let TokenType::Identifier(s) = name_token.token_type.clone() {
-            self.advance();
-            s
-        } else {
-            let msg = format!(
-                "Expected variant name, but found {:?}.",
-                name_token.token_type
-            );
-            return Err(self.error(
-                name_token.span,
-                msg,
-                Some("while parsing a sum type variant"),
-            ));
+        let name = match &name_token.token_type {
+            TokenType::Identifier(s) => {
+                self.advance();
+                s.clone()
+            }
+            TokenType::KeywordNone => {
+                self.advance();
+                "None".to_string()
+            }
+            _ => {
+                let msg = format!(
+                    "Expected variant name, but found {:?}.",
+                    name_token.token_type
+                );
+                return Err(self.error(
+                    name_token.span,
+                    msg,
+                    Some("while parsing a sum type variant"),
+                ));
+            }
         };
 
         let ty = if self.check(TokenType::OpenParen) {
@@ -296,7 +287,7 @@ impl<'a> Parser<'a> {
 
     fn parse_statement(&mut self) -> Result<Statement, ParseError> {
         // Handle while loops
-        if self.is_contextual_keyword("while") {
+        if self.check(TokenType::KeywordWhile) {
             let expr = self.parse_while_statement()?;
             let span = expr.span();
             return Ok(Statement::Expression(ExpressionStatement {
@@ -493,7 +484,6 @@ impl<'a> Parser<'a> {
             if !self.match_token(&[TokenType::Comma]) {
                 break;
             }
-            // Allow trailing comma
         }
 
         let end_span = self
@@ -899,24 +889,19 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_brace_expression(&mut self) -> Result<Expression, ParseError> {
-        // Disambiguate between block and record literal
         let saved_pos = self.current;
         self.advance(); // consume '{'
 
         if self.check(TokenType::CloseBrace) {
-            // Empty braces - treat as empty block
             self.current = saved_pos;
             return self.parse_block_expression();
         }
 
-        // Look ahead to determine if this is a record or block
         if self.peek().token_type.is_identifier() && self.peek_next().token_type == TokenType::Colon
         {
-            // Record literal: { name: value }
             self.current = saved_pos;
             self.parse_record_literal()
         } else {
-            // Block expression: { statements }
             self.current = saved_pos;
             self.parse_block_expression()
         }
@@ -988,7 +973,6 @@ impl<'a> Parser<'a> {
 
         let else_branch = if self.match_token(&[TokenType::KeywordElse]) {
             if self.check(TokenType::KeywordIf) {
-                // else if
                 let else_if_expr = self.parse_if_expression()?;
                 Some(Box::new(else_if_expr))
             } else {
@@ -1093,12 +1077,16 @@ impl<'a> Parser<'a> {
     fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
         let token = self.peek().clone();
 
-        // Check for wildcard using identifier "_"
-        if let TokenType::Identifier(ref name) = token.token_type {
-            if name == "_" {
-                self.advance();
-                return Ok(Pattern::Wildcard(token.span));
-            }
+        // Check for wildcard using KeywordUnderscore
+        if token.token_type == TokenType::KeywordUnderscore {
+            self.advance();
+            return Ok(Pattern::Wildcard(token.span));
+        }
+
+        // Check for None keyword
+        if token.token_type == TokenType::KeywordNone {
+            self.advance();
+            return Ok(Pattern::Identifier("None".to_string(), token.span));
         }
 
         if let TokenType::Identifier(name) = token.token_type.clone() {
@@ -1127,13 +1115,7 @@ impl<'a> Parser<'a> {
                     span,
                 });
             } else {
-                // Could be a variant without payload or an identifier pattern
-                // For now, treat as variant
-                return Ok(Pattern::Variant {
-                    name,
-                    patterns: None,
-                    span: token.span,
-                });
+                return Ok(Pattern::Identifier(name, token.span));
             }
         }
 
@@ -1244,7 +1226,6 @@ impl<'a> Parser<'a> {
             if !self.match_token(&[TokenType::Comma]) {
                 break;
             }
-            // Allow trailing comma
         }
 
         let end_span = self
@@ -1363,44 +1344,44 @@ impl<'a> Parser<'a> {
         let mut final_expression = None;
 
         while !self.check(TokenType::CloseBrace) && !self.is_at_end() {
-            // Try to parse a statement
-            let checkpoint = self.current;
+            // Check if this is a statement that needs special parsing (let/function/while/for)
+            let is_special_statement = self.peek().token_type == TokenType::KeywordMut
+                || self.check(TokenType::KeywordWhile)
+                || self.is_contextual_keyword("for")
+                || (self.peek().token_type.is_identifier()
+                    && self.peek_next().token_type == TokenType::OpenParen
+                    && self.looks_like_function_definition())
+                || (self.peek().token_type.is_identifier()
+                    && (self.peek_next().token_type == TokenType::Assign
+                        || self.peek_next().token_type == TokenType::Colon));
 
-            // Check if this looks like a final expression (no semicolon after)
-            match self.parse_statement() {
-                Ok(Statement::Expression(expr_stmt)) => {
-                    // Check if there's a semicolon after
-                    if self.check(TokenType::CloseBrace) {
-                        // This is the final expression
-                        final_expression = Some(Box::new(expr_stmt.expression));
-                        break;
-                    } else {
-                        // Regular statement, already consumed semicolon
-                        statements.push(Statement::Expression(expr_stmt));
-                    }
-                }
-                Ok(stmt) => {
-                    statements.push(stmt);
-                }
-                Err(e) => {
-                    // If we failed to parse a statement, check if it's an expression without semicolon
-                    self.current = checkpoint;
-                    match self.parse_expression() {
-                        Ok(expr) => {
-                            if self.check(TokenType::CloseBrace) {
-                                // Final expression without semicolon
-                                final_expression = Some(Box::new(expr));
-                                break;
-                            } else {
-                                // Expected semicolon
-                                return Err(e);
-                            }
-                        }
-                        Err(_) => {
-                            return Err(e);
-                        }
-                    }
-                }
+            if is_special_statement {
+                statements.push(self.parse_statement()?);
+                continue;
+            }
+
+            // Parse expression and check for semicolon
+            let expr = self.parse_expression()?;
+
+            if self.match_token(&[TokenType::Semicolon]) {
+                // Expression statement with semicolon
+                let span = Span::new(expr.span().start, self.previous().span.end);
+                statements.push(Statement::Expression(ExpressionStatement {
+                    expression: expr,
+                    span,
+                }));
+            } else if self.check(TokenType::CloseBrace) {
+                // Final expression without semicolon
+                final_expression = Some(Box::new(expr));
+                break;
+            } else {
+                // Error: expected semicolon or close brace
+                let found = self.peek().clone();
+                return Err(self.error(
+                    found.span,
+                    format!("Expected ';' or '}}', but found {:?}", found.token_type),
+                    Some("while parsing a block"),
+                ));
             }
         }
 
