@@ -2,8 +2,8 @@
 
 <top_stmt_list> ::= (<top_stmt>)*
 
-<top_stmt> ::= <type_decl> ";" 
-             | <let_stmt> 
+<top_stmt> ::= <type_decl> ";"
+             | <let_stmt>
              | <expr_stmt>
 
 <expr_stmt> ::= <expr> ";"
@@ -17,7 +17,7 @@
 <sum_ctor> ::= <variant> ( "|" <variant> )*
 <variant> ::= <identifier> "(" <type> ")" | <identifier>
 
-<let_stmt> ::= <fn_bind> ";" | <var_bind>
+<let_stmt> ::= <fn_bind> | <var_bind>
 
 <fn_bind> ::= <opt_mut> <identifier> <param_list> ":" <type> "=" <block>
 
@@ -52,7 +52,7 @@
 
 <opt_comma> ::= "," | E
 
-<pattern> ::= "_" 
+<pattern> ::= "_"
             | <identifier>
             | <identifier> "(" <pattern_list>? ")"
 
@@ -69,9 +69,9 @@
 
 <postfix_expr> ::= <primary> (<postfix_op>)*
 
-<postfix_op> ::= "(" <arg_list>? ")" 
-               | "." <identifier> 
-               | "::" <identifier> 
+<postfix_op> ::= "(" <arg_list>? ")"
+               | "." <identifier>
+               | "::" <identifier>
                | "[" <expr> "]"
 
 <arg_list> ::= <expr> ("," <expr>)*
@@ -93,9 +93,9 @@
 
 <type_func> ::= <type_primary> ( "->" <type> )?
 
-<type_primary> ::= <type_name> 
-                  | <generic_type> 
-                  | <record_type> 
+<type_primary> ::= <type_name>
+                  | <generic_type>
+                  | <record_type>
                   | "[" <type> "]"
 
 <generic_type> ::= <type_name> "[" <type> "]"
@@ -104,10 +104,10 @@
 
 <field_decl> ::= <identifier> ":" <type>
 
-<bin_op> ::= "+" | "-" | "*" | "/" 
-           | "==" | "!=" 
-           | "<" | "<=" | ">" | ">=" 
-           | "&&" | "||" 
+<bin_op> ::= "+" | "-" | "*" | "/"
+           | "==" | "!="
+           | "<" | "<=" | ">" | ">="
+           | "&&" | "||"
            | "+=" | "-=" | "*=" | "/="
 
 <literal> ::= <integer> | <float> | <string> | "true" | "false" | "None"
