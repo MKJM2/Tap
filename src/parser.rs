@@ -40,23 +40,33 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_top_statement(&mut self) -> Result<TopStatement, String> {
-        if self.match_token(&[TokenType::KeywordFn]) {
-            self.parse_function_statement().map(TopStatement::LetStmt)
-        } else if self.match_token(&[TokenType::KeywordLet]) {
-            self.parse_let_statement().map(TopStatement::LetStmt)
-        } else {
-            self.parse_expression_statement()
-                .map(TopStatement::Expression)
+        if self.peek().token_type.is_identifier() && self.peek_next().token_type == TokenType::OpenParen {
+            return self.parse_function_statement().map(TopStatement::LetStmt);
         }
+        if self.peek().token_type == TokenType::KeywordMut {
+            return self.parse_let_statement().map(TopStatement::LetStmt);
+        }
+        if self.peek().token_type.is_identifier() && (self.peek_next().token_type == TokenType::Assign || self.peek_next().token_type == TokenType::Colon) {
+            return self.parse_let_statement().map(TopStatement::LetStmt);
+        }
+
+        self.parse_expression_statement()
+            .map(TopStatement::Expression)
     }
 
     fn parse_statement(&mut self) -> Result<Statement, String> {
-        if self.match_token(&[TokenType::KeywordLet]) {
-            self.parse_let_statement().map(Statement::Let)
-        } else {
-            self.parse_expression_statement()
-                .map(Statement::Expression)
+        if self.peek().token_type.is_identifier() && self.peek_next().token_type == TokenType::OpenParen {
+            return self.parse_function_statement().map(Statement::Let);
         }
+        if self.peek().token_type == TokenType::KeywordMut {
+            return self.parse_let_statement().map(Statement::Let);
+        }
+        if self.peek().token_type.is_identifier() && (self.peek_next().token_type == TokenType::Assign || self.peek_next().token_type == TokenType::Colon) {
+            return self.parse_let_statement().map(Statement::Let);
+        }
+
+        self.parse_expression_statement()
+            .map(Statement::Expression)
     }
 
     fn parse_let_statement(&mut self) -> Result<LetStatement, String> {
@@ -65,7 +75,7 @@ impl<'a> Parser<'a> {
             self.advance();
             s
         } else {
-            return Err("Expected identifier after 'let'.".to_string());
+            return Err("Expected identifier.".to_string());
         };
 
         let type_annotation = if self.match_token(&[TokenType::Colon]) {
@@ -90,11 +100,12 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_function_statement(&mut self) -> Result<LetStatement, String> {
+        let mutable = self.match_token(&[TokenType::KeywordMut]);
         let name = if let TokenType::Identifier(s) = self.peek().token_type.clone() {
             self.advance();
             s
         } else {
-            return Err("Expected identifier after 'fn'.".to_string());
+            return Err("Expected identifier for function name.".to_string());
         };
         let params = self.parse_parameters()?;
         let return_type = if self.match_token(&[TokenType::Colon]) {
@@ -105,11 +116,12 @@ impl<'a> Parser<'a> {
                 Span { start: 0, end: 0 },
             ))
         };
+        self.consume(TokenType::Assign, "Expected '=' after function signature.")?;
         let body = self.parse_block()?;
         let span = Span::new(self.previous().span.start, body.span.end);
 
         Ok(LetStatement::Function(FunctionBinding {
-            mutable: false,
+            mutable,
             name,
             params,
             return_type,
@@ -149,9 +161,17 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expression(&mut self) -> Result<Expression, String> {
-        if self.check(TokenType::KeywordFn) {
-            self.advance();
-            return self.parse_function_expression();
+        // Check for lambda expression: `(` `)` `=>` or `(` identifier `:`
+        if self.check(TokenType::OpenParen) {
+            if self.peek_next().token_type == TokenType::CloseParen {
+                if self.tokens.get(self.current + 2).map_or(false, |t| t.token_type == TokenType::FatArrow) {
+                    return self.parse_function_expression();
+                }
+            } else if self.peek_next().token_type.is_identifier() {
+                 if self.tokens.get(self.current + 2).map_or(false, |t| t.token_type == TokenType::Colon) {
+                    return self.parse_function_expression();
+                }
+            }
         }
         self.parse_logical_or_expression()
     }
@@ -392,19 +412,27 @@ impl<'a> Parser<'a> {
                 Span { start: 0, end: 0 },
             ))
         };
-        let body = self.parse_block()?;
-        let span = Span::new(self.previous().span.start, body.span.end);
+
+        self.consume(TokenType::FatArrow, "Expected '=>' for lambda expression body.")?;
+
+        let body = if self.check(TokenType::OpenBrace) {
+            ExpressionOrBlock::Block(self.parse_block()?)
+        } else {
+            ExpressionOrBlock::Expression(Box::new(self.parse_expression()?))
+        };
+
+        let span = Span::new(self.previous().span.start, self.previous().span.end); // This needs to be improved
 
         Ok(Expression::Lambda(LambdaExpression {
             params,
             return_type_annotation: Some(return_type),
-            body: ExpressionOrBlock::Block(body),
+            body,
             span,
         }))
     }
 
     fn parse_parameters(&mut self) -> Result<Vec<Parameter>, String> {
-        self.consume(TokenType::OpenParen, "Expected '(' after 'fn'.")?;
+        self.consume(TokenType::OpenParen, "Expected '(' to start a parameter list.")?;
         let mut params = Vec::new();
         if !self.check(TokenType::CloseParen) {
             loop {
@@ -490,6 +518,14 @@ impl<'a> Parser<'a> {
     fn peek(&mut self) -> &Token {
         // Changed to &mut self
         &self.tokens[self.current]
+    }
+
+    fn peek_next(&self) -> &Token {
+        if self.current + 1 >= self.tokens.len() {
+            &self.tokens[self.tokens.len() - 1] // Return EOF
+        } else {
+            &self.tokens[self.current + 1]
+        }
     }
 
     fn previous(&mut self) -> &Token {
