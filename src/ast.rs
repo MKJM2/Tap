@@ -57,6 +57,7 @@ pub struct TypeDeclaration {
 pub enum TypeConstructor {
     Sum(SumConstructor),
     Record(RecordType),
+    Alias(Type), // Added: for simple type aliases like `type A = B;`
 }
 
 impl TypeConstructor {
@@ -64,6 +65,7 @@ impl TypeConstructor {
         match self {
             TypeConstructor::Sum(sum) => sum.span,
             TypeConstructor::Record(record) => record.span,
+            TypeConstructor::Alias(ty) => ty.span(), // Added
         }
     }
 }
@@ -168,7 +170,6 @@ pub enum Type {
         span: Span,
     },
     Primary(TypePrimary),
-    // TODO: Add other complex types as needed
 }
 
 impl Type {
@@ -250,12 +251,12 @@ impl Expression {
     }
 }
 
-/// Represents an if expression: `"if" "(" <expr> ")" <block> ( "else" <block> )?`
+/// Represents an if expression: `"if" "(" <expr> ")" <block> ( "else" ( <if_expr> | <block> ) )?`
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfExpression {
     pub condition: Box<Expression>,
     pub then_branch: Block,
-    pub else_branch: Option<Block>,
+    pub else_branch: Option<Box<Expression>>, // Changed: can be another if or a block
     pub span: Span,
 }
 

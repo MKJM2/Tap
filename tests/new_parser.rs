@@ -287,6 +287,95 @@ fn test_parse_enum_definition() {
 }
 
 #[test]
+fn test_parse_sum_type_with_payloads() {
+    // Tests: <identifier> "(" <type> ")"
+    let source = "type Result = Ok(int) | Err(string);";
+    let program = parse_test_source(source);
+
+    match &program.statements[0] {
+        TopStatement::TypeDecl(decl) => {
+            assert_eq!(decl.name, "Result");
+            match &decl.constructor {
+                TypeConstructor::Sum(sum_type) => {
+                    assert_eq!(sum_type.variants.len(), 2);
+
+                    // Check "Ok(int)"
+                    assert_eq!(sum_type.variants[0].name, "Ok");
+                    assert!(sum_type.variants[0].ty.is_some());
+                    // Verify the inner type is int (assuming you have a Type enum)
+                    // matches!(sum_type.variants[0].ty, Some(Type::Primary(name)) if name == "int")
+
+                    // Check "Err(string)"
+                    assert_eq!(sum_type.variants[1].name, "Err");
+                    assert!(sum_type.variants[1].ty.is_some());
+                }
+                _ => panic!("Expected sum constructor"),
+            }
+        }
+        _ => panic!("Expected type declaration"),
+    }
+}
+
+#[test]
+fn test_parse_sum_type_with_nested_record() {
+    // Tests: <variant> holding a <record_type>
+    // type Action = Move({x: int, y: int}) | Quit;
+    let source = "type Action = Move({x: int, y: int}) | Quit;";
+    let program = parse_test_source(source);
+
+    match &program.statements[0] {
+        TopStatement::TypeDecl(decl) => {
+            match &decl.constructor {
+                TypeConstructor::Sum(sum_type) => {
+                    let move_variant = &sum_type.variants[0];
+                    assert_eq!(move_variant.name, "Move");
+
+                    // Verify the payload is a Record Type
+                    match &move_variant.ty {
+                        Some(Type::Primary(TypePrimary::Record(record_type))) => {
+                            assert_eq!(record_type.fields.len(), 2);
+                            assert_eq!(record_type.fields[0].name, "x");
+                            assert_eq!(record_type.fields[1].name, "y");
+                        }
+                        _ => panic!("Expected Record type inside Move variant"),
+                    }
+                }
+                _ => panic!("Expected sum constructor"),
+            }
+        }
+        _ => panic!("Expected type declaration"),
+    }
+}
+
+#[test]
+fn test_parse_mixed_sum_type() {
+    // Tests mixing: <identifier> | <identifier> "(" <type> ")"
+    let source = "type OptionInt = Some(int) | None;";
+    let program = parse_test_source(source);
+
+    match &program.statements[0] {
+        TopStatement::TypeDecl(decl) => {
+            assert_eq!(decl.name, "OptionInt");
+            match &decl.constructor {
+                TypeConstructor::Sum(sum_type) => {
+                    assert_eq!(sum_type.variants.len(), 2);
+
+                    // Some(int)
+                    assert_eq!(sum_type.variants[0].name, "Some");
+                    assert!(sum_type.variants[0].ty.is_some());
+
+                    // None
+                    assert_eq!(sum_type.variants[1].name, "None");
+                    assert!(sum_type.variants[1].ty.is_none()); // Should be None
+                }
+                _ => panic!("Expected sum constructor"),
+            }
+        }
+        _ => panic!("Expected type declaration"),
+    }
+}
+
+#[test]
 fn test_parse_simple_enum_definition() {
     let source = "type A = B;";
     let program = parse_test_source(source);
@@ -1120,8 +1209,10 @@ fn test_parse_method_invocation_with_arguments() {
 }
 
 #[test]
+
 fn test_parse_method_definition() {
     let source = "c = { r: 5, area: () => this.r * this.r * 3.14 };";
+
     let program = parse_test_source(source);
 
     assert_eq!(program.statements.len(), 1);
@@ -1129,31 +1220,40 @@ fn test_parse_method_definition() {
     match &program.statements[0] {
         TopStatement::LetStmt(LetStatement::Variable(bind)) => {
             assert_eq!(bind.name, "c");
+
             match &bind.value {
                 Expression::Primary(PrimaryExpression::Record(record_lit)) => {
                     assert_eq!(record_lit.fields.len(), 2);
+
                     assert_eq!(record_lit.fields[0].name, "r");
+
                     match &record_lit.fields[1].value {
                         Expression::Lambda(lambda) => {
                             assert!(lambda.params.is_empty());
+
                             match &lambda.body {
                                 ExpressionOrBlock::Expression(expr) => {
                                     if let Expression::Binary(bin_expr) = &**expr {
                                         // this.r * this.r * 3.14
+
                                         assert_eq!(bin_expr.operator, BinaryOperator::Multiply);
                                     } else {
                                         panic!("Expected binary expression in lambda body");
                                     }
                                 }
+
                                 _ => panic!("Expected expression body for lambda"),
                             }
                         }
+
                         _ => panic!("Expected lambda expression for field 'area'"),
                     }
                 }
+
                 _ => panic!("Expected record literal expression"),
             }
         }
+
         _ => panic!("Expected variable binding"),
     }
 }
