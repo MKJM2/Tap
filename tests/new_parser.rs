@@ -2,11 +2,11 @@
 
 use tap::ast::{
     BinaryExpression, BinaryOperator, Expression, ExpressionOrBlock, LetStatement, LiteralValue,
-    Pattern, PrimaryExpression, Program, RecordLiteral, Span, TopStatement, Type, TypeConstructor,
-    TypePrimary,
+    Pattern, PostfixOperator, PrimaryExpression, Program, Span, TopStatement, Type,
+    TypeConstructor, TypePrimary, UnaryOperator,
 };
 use tap::diagnostics::Reporter;
-use tap::lexer::{Lexer, Token};
+use tap::lexer::Lexer;
 use tap::parser::Parser;
 
 // --- TEST HELPER ---
@@ -432,7 +432,10 @@ fn test_parse_for_expression() {
     match &program.statements[0] {
         TopStatement::Expression(expr_stmt) => match &expr_stmt.expression {
             Expression::For(for_expr) => {
-                assert_eq!(for_expr.iterator, "i");
+                match &for_expr.pattern {
+                    Pattern::Identifier(name, _) => assert_eq!(name, "i"),
+                    _ => panic!("Expected identifier pattern for iterator"),
+                }
                 match &*for_expr.iterable {
                     Expression::Primary(PrimaryExpression::List(list_lit)) => {
                         assert_eq!(list_lit.elements.len(), 3);
@@ -728,7 +731,7 @@ fn test_parse_function_call_with_arguments() {
 
                     assert_eq!(postfix.operators.len(), 1);
                     match &postfix.operators[0] {
-                        tap::ast::PostfixOperator::Call { args, .. } => {
+                        PostfixOperator::Call { args, .. } => {
                             assert_eq!(args.len(), 2);
                             match &args[0] {
                                 Expression::Primary(PrimaryExpression::Literal(
@@ -769,7 +772,7 @@ fn test_parse_unary_expression() {
     match &program.statements[0] {
         TopStatement::Expression(expr_stmt) => match &expr_stmt.expression {
             Expression::Unary(unary_expr) => {
-                assert_eq!(unary_expr.operator, tap::ast::UnaryOperator::Minus);
+                assert_eq!(unary_expr.operator, UnaryOperator::Minus);
                 match &*unary_expr.right {
                     Expression::Primary(PrimaryExpression::Literal(
                         LiteralValue::Integer(val),
@@ -863,7 +866,7 @@ fn test_parse_string_literal_expression() {
     match &program.statements[0] {
         TopStatement::Expression(expr_stmt) => match &expr_stmt.expression {
             Expression::Primary(PrimaryExpression::Literal(LiteralValue::String(val), _)) => {
-                assert_eq!(val, "hello world");
+                assert_eq!(*val, "hello world");
             }
             _ => panic!("Expected string literal expression"),
         },
@@ -920,7 +923,7 @@ fn test_parse_record_literal() {
         TopStatement::LetStmt(LetStatement::Variable(bind)) => {
             assert_eq!(bind.name, "point");
             match &bind.value {
-                Expression::Primary(PrimaryExpression::Record(record_lit, _)) => {
+                Expression::Primary(PrimaryExpression::Record(record_lit)) => {
                     assert_eq!(record_lit.fields.len(), 2);
                     assert_eq!(record_lit.fields[0].name, "x");
                     match &record_lit.fields[0].value {
@@ -971,7 +974,7 @@ fn test_parse_field_access() {
 
                     assert_eq!(postfix.operators.len(), 1);
                     match &postfix.operators[0] {
-                        tap::ast::PostfixOperator::Field { name, .. } => {
+                        PostfixOperator::FieldAccess { name, .. } => {
                             assert_eq!(name, "x");
                         }
                         _ => panic!("Expected Field access postfix operator"),
@@ -1005,15 +1008,152 @@ fn test_parse_path_resolution() {
 
                     assert_eq!(postfix.operators.len(), 1);
                     match &postfix.operators[0] {
-                        tap::ast::PostfixOperator::Path { name, .. } => {
+                        PostfixOperator::TypePath { name, .. } => {
                             assert_eq!(name, "Some");
                         }
-                        _ => panic!("Expected Path resolution postfix operator"),
+                        _ => panic!("Expected TypePath resolution postfix operator"),
                     }
                 }
                 _ => panic!("Expected postfix expression"),
             }
         }
         _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_simple_method_invocation() {
+    let source = "circle.radius();";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::Expression(expr_stmt) => {
+            match &expr_stmt.expression {
+                Expression::Postfix(postfix) => {
+                    // Check the primary: circle
+                    match &*postfix.primary {
+                        Expression::Primary(PrimaryExpression::Identifier(ident, _)) => {
+                            assert_eq!(ident, "circle");
+                        }
+                        _ => panic!("Expected identifier 'circle' for primary expression"),
+                    }
+
+                    assert_eq!(postfix.operators.len(), 2);
+                    match &postfix.operators[0] {
+                        PostfixOperator::FieldAccess { name, .. } => {
+                            assert_eq!(name, "radius");
+                        }
+                        _ => panic!("Expected Field access postfix operator"),
+                    }
+                    match &postfix.operators[1] {
+                        PostfixOperator::Call { args, .. } => {
+                            assert!(args.is_empty());
+                        }
+                        _ => panic!("Expected Call postfix operator"),
+                    }
+                }
+                _ => panic!("Expected postfix expression"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_method_invocation_with_arguments() {
+    let source = "rect.resize(10, 20);";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::Expression(expr_stmt) => {
+            match &expr_stmt.expression {
+                Expression::Postfix(postfix) => {
+                    // Check the primary: rect
+                    match &*postfix.primary {
+                        Expression::Primary(PrimaryExpression::Identifier(ident, _)) => {
+                            assert_eq!(ident, "rect");
+                        }
+                        _ => panic!("Expected identifier 'rect' for primary expression"),
+                    }
+
+                    assert_eq!(postfix.operators.len(), 2);
+                    match &postfix.operators[0] {
+                        PostfixOperator::FieldAccess { name, .. } => {
+                            assert_eq!(name, "resize");
+                        }
+                        _ => panic!("Expected Field access postfix operator"),
+                    }
+                    match &postfix.operators[1] {
+                        PostfixOperator::Call { args, .. } => {
+                            assert_eq!(args.len(), 2);
+                            match &args[0] {
+                                Expression::Primary(PrimaryExpression::Literal(
+                                    LiteralValue::Integer(val),
+                                    _,
+                                )) => {
+                                    assert_eq!(*val, 10);
+                                }
+                                _ => panic!("Expected integer literal for first argument"),
+                            }
+                            match &args[1] {
+                                Expression::Primary(PrimaryExpression::Literal(
+                                    LiteralValue::Integer(val),
+                                    _,
+                                )) => {
+                                    assert_eq!(*val, 20);
+                                }
+                                _ => panic!("Expected integer literal for second argument"),
+                            }
+                        }
+                        _ => panic!("Expected Call postfix operator"),
+                    }
+                }
+                _ => panic!("Expected postfix expression"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_method_definition() {
+    let source = "c = { r: 5, area: () => this.r * this.r * 3.14 };";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::LetStmt(LetStatement::Variable(bind)) => {
+            assert_eq!(bind.name, "c");
+            match &bind.value {
+                Expression::Primary(PrimaryExpression::Record(record_lit)) => {
+                    assert_eq!(record_lit.fields.len(), 2);
+                    assert_eq!(record_lit.fields[0].name, "r");
+                    match &record_lit.fields[1].value {
+                        Expression::Lambda(lambda) => {
+                            assert!(lambda.params.is_empty());
+                            match &lambda.body {
+                                ExpressionOrBlock::Expression(expr) => {
+                                    if let Expression::Binary(bin_expr) = &**expr {
+                                        // this.r * this.r * 3.14
+                                        assert_eq!(bin_expr.operator, BinaryOperator::Multiply);
+                                    } else {
+                                        panic!("Expected binary expression in lambda body");
+                                    }
+                                }
+                                _ => panic!("Expected expression body for lambda"),
+                            }
+                        }
+                        _ => panic!("Expected lambda expression for field 'area'"),
+                    }
+                }
+                _ => panic!("Expected record literal expression"),
+            }
+        }
+        _ => panic!("Expected variable binding"),
     }
 }

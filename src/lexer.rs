@@ -64,6 +64,7 @@ pub enum TokenType {
     KeywordTrue,       // true
     KeywordFalse,      // false
     KeywordNone,       // None
+    KeywordThis,       // this
     KeywordUnderscore, // _ (used in patterns)
 
     // End of File
@@ -405,6 +406,7 @@ impl<'a> Lexer<'a> {
             "true" => TokenType::KeywordTrue,
             "false" => TokenType::KeywordFalse,
             "None" => TokenType::KeywordNone,
+            "this" => TokenType::KeywordThis,
             "_" => TokenType::KeywordUnderscore, // Explicit keyword for '_' pattern
             _ => TokenType::Identifier(text.clone()),
         };

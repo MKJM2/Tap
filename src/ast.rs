@@ -389,6 +389,7 @@ impl PostfixOperator {
 pub enum PrimaryExpression {
     Literal(LiteralValue, Span),
     Identifier(String, Span),
+    This(Span),
     Parenthesized(Box<Expression>, Span), // "(" <expr> ")"
     List(ListLiteral),
     Record(RecordLiteral),
@@ -399,6 +400,7 @@ impl PrimaryExpression {
         match self {
             PrimaryExpression::Literal(_, span) => *span,
             PrimaryExpression::Identifier(_, span) => *span,
+            PrimaryExpression::This(span) => *span,
             PrimaryExpression::Parenthesized(_, span) => *span,
             PrimaryExpression::List(list) => list.span,
             PrimaryExpression::Record(record) => record.span,

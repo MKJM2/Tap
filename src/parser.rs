@@ -1,8 +1,8 @@
 use crate::ast::{
     BinaryExpression, BinaryOperator, Block, Expression, ExpressionOrBlock, ExpressionStatement,
-    FunctionBinding, LambdaExpression, LetStatement, LiteralValue, Parameter, PrimaryExpression,
-    Program, Span, Statement, TopStatement, Type, TypePrimary, UnaryExpression, UnaryOperator,
-    VariableBinding,
+    FieldInitializer, FunctionBinding, LambdaExpression, LetStatement, LiteralValue, Parameter,
+    PostfixOperator, PrimaryExpression, Program, RecordLiteral, Span, Statement, TopStatement,
+    Type, TypePrimary, UnaryExpression, UnaryOperator, VariableBinding,
 };
 use crate::diagnostics::Reporter;
 use crate::lexer::{Token, TokenType};
@@ -40,13 +40,18 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_top_statement(&mut self) -> Result<TopStatement, String> {
-        if self.peek().token_type.is_identifier() && self.peek_next().token_type == TokenType::OpenParen {
+        if self.peek().token_type.is_identifier()
+            && self.peek_next().token_type == TokenType::OpenParen
+        {
             return self.parse_function_statement().map(TopStatement::LetStmt);
         }
         if self.peek().token_type == TokenType::KeywordMut {
             return self.parse_let_statement().map(TopStatement::LetStmt);
         }
-        if self.peek().token_type.is_identifier() && (self.peek_next().token_type == TokenType::Assign || self.peek_next().token_type == TokenType::Colon) {
+        if self.peek().token_type.is_identifier()
+            && (self.peek_next().token_type == TokenType::Assign
+                || self.peek_next().token_type == TokenType::Colon)
+        {
             return self.parse_let_statement().map(TopStatement::LetStmt);
         }
 
@@ -55,18 +60,22 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statement(&mut self) -> Result<Statement, String> {
-        if self.peek().token_type.is_identifier() && self.peek_next().token_type == TokenType::OpenParen {
+        if self.peek().token_type.is_identifier()
+            && self.peek_next().token_type == TokenType::OpenParen
+        {
             return self.parse_function_statement().map(Statement::Let);
         }
         if self.peek().token_type == TokenType::KeywordMut {
             return self.parse_let_statement().map(Statement::Let);
         }
-        if self.peek().token_type.is_identifier() && (self.peek_next().token_type == TokenType::Assign || self.peek_next().token_type == TokenType::Colon) {
+        if self.peek().token_type.is_identifier()
+            && (self.peek_next().token_type == TokenType::Assign
+                || self.peek_next().token_type == TokenType::Colon)
+        {
             return self.parse_let_statement().map(Statement::Let);
         }
 
-        self.parse_expression_statement()
-            .map(Statement::Expression)
+        self.parse_expression_statement().map(Statement::Expression)
     }
 
     fn parse_let_statement(&mut self) -> Result<LetStatement, String> {
@@ -164,11 +173,19 @@ impl<'a> Parser<'a> {
         // Check for lambda expression: `(` `)` `=>` or `(` identifier `:`
         if self.check(TokenType::OpenParen) {
             if self.peek_next().token_type == TokenType::CloseParen {
-                if self.tokens.get(self.current + 2).map_or(false, |t| t.token_type == TokenType::FatArrow) {
+                if self
+                    .tokens
+                    .get(self.current + 2)
+                    .map_or(false, |t| t.token_type == TokenType::FatArrow)
+                {
                     return self.parse_function_expression();
                 }
             } else if self.peek_next().token_type.is_identifier() {
-                 if self.tokens.get(self.current + 2).map_or(false, |t| t.token_type == TokenType::Colon) {
+                if self
+                    .tokens
+                    .get(self.current + 2)
+                    .map_or(false, |t| t.token_type == TokenType::Colon)
+                {
                     return self.parse_function_expression();
                 }
             }
@@ -321,9 +338,73 @@ impl<'a> Parser<'a> {
     fn parse_postfix_expression(&mut self) -> Result<Expression, String> {
         let expr = self.parse_primary_expression()?;
 
-        // For now, no postfix operators implemented yet, just return primary.
-        // This will be expanded later for calls, field access, etc.
-        Ok(expr)
+        let mut operators = Vec::new();
+        while self.match_token(&[
+            TokenType::Dot,
+            TokenType::DoubleColon,
+            TokenType::OpenParen,
+            TokenType::OpenBracket,
+        ]) {
+            let operator_token = self.previous().clone();
+            let operator = match operator_token.token_type {
+                TokenType::Dot => {
+                    let name = if let TokenType::Identifier(s) = self.peek().token_type.clone() {
+                        self.advance();
+                        s
+                    } else {
+                        return Err("Expected identifier after '.'.".to_string());
+                    };
+                    let span = Span::new(operator_token.span.start, self.previous().span.end);
+                    PostfixOperator::FieldAccess { name, span }
+                }
+                TokenType::DoubleColon => {
+                    let name = if let TokenType::Identifier(s) = self.peek().token_type.clone() {
+                        self.advance();
+                        s
+                    } else {
+                        return Err("Expected identifier after '::'.".to_string());
+                    };
+                    let span = Span::new(operator_token.span.start, self.previous().span.end);
+                    PostfixOperator::TypePath { name, span }
+                }
+                TokenType::OpenParen => {
+                    let mut args = Vec::new();
+                    if !self.check(TokenType::CloseParen) {
+                        loop {
+                            args.push(self.parse_expression()?);
+                            if !self.match_token(&[TokenType::Comma]) {
+                                break;
+                            }
+                        }
+                    }
+                    self.consume(TokenType::CloseParen, "Expected ')' after arguments.")?;
+                    let span = Span::new(operator_token.span.start, self.previous().span.end);
+                    PostfixOperator::Call { args, span }
+                }
+                TokenType::OpenBracket => {
+                    let index = self.parse_expression()?;
+                    self.consume(TokenType::CloseBracket, "Expected ']' after index.")?;
+                    let span = Span::new(operator_token.span.start, self.previous().span.end);
+                    PostfixOperator::ListAccess {
+                        index: Box::new(index),
+                        span,
+                    }
+                }
+                _ => unreachable!(),
+            };
+            operators.push(operator);
+        }
+
+        if operators.is_empty() {
+            Ok(expr)
+        } else {
+            let span = Span::new(expr.span().start, self.previous().span.end);
+            Ok(Expression::Postfix(crate::ast::PostfixExpression {
+                primary: Box::new(expr),
+                operators,
+                span,
+            }))
+        }
     }
 
     fn parse_primary_expression(&mut self) -> Result<Expression, String> {
@@ -373,6 +454,10 @@ impl<'a> Parser<'a> {
                     span,
                 )))
             }
+            TokenType::KeywordThis => {
+                self.advance();
+                Ok(Expression::Primary(PrimaryExpression::This(span)))
+            }
             TokenType::OpenParen => {
                 self.advance();
                 let expr = self.parse_expression()?;
@@ -391,6 +476,7 @@ impl<'a> Parser<'a> {
                     span,
                 )))
             }
+            TokenType::OpenBrace => self.parse_record_literal(),
             _ => {
                 let error_span = span;
                 self.error(
@@ -400,6 +486,51 @@ impl<'a> Parser<'a> {
                 Err("Expected expression".to_string())
             }
         }
+    }
+
+    fn parse_record_literal(&mut self) -> Result<Expression, String> {
+        let start_span = self
+            .consume(
+                TokenType::OpenBrace,
+                "Expected '{' to start a record literal.",
+            )?
+            .span;
+        let mut fields = Vec::new();
+
+        if !self.check(TokenType::CloseBrace) {
+            loop {
+                let name = if let TokenType::Identifier(s) = self.peek().token_type.clone() {
+                    self.advance();
+                    s
+                } else {
+                    return Err("Expected identifier for field name.".to_string());
+                };
+                let name_span = self.previous().span;
+                self.consume(TokenType::Colon, "Expected ':' after field name.")?;
+                let value = self.parse_expression()?;
+                let field_span = Span::new(name_span.start, value.span().end);
+                fields.push(FieldInitializer {
+                    name,
+                    value,
+                    span: field_span,
+                });
+                if !self.match_token(&[TokenType::Comma]) {
+                    break;
+                }
+            }
+        }
+
+        let end_span = self
+            .consume(
+                TokenType::CloseBrace,
+                "Expected '}' to end a record literal.",
+            )?
+            .span;
+        let span = Span::new(start_span.start, end_span.end);
+
+        Ok(Expression::Primary(PrimaryExpression::Record(
+            RecordLiteral { fields, span },
+        )))
     }
 
     fn parse_function_expression(&mut self) -> Result<Expression, String> {
@@ -413,7 +544,10 @@ impl<'a> Parser<'a> {
             ))
         };
 
-        self.consume(TokenType::FatArrow, "Expected '=>' for lambda expression body.")?;
+        self.consume(
+            TokenType::FatArrow,
+            "Expected '=>' for lambda expression body.",
+        )?;
 
         let body = if self.check(TokenType::OpenBrace) {
             ExpressionOrBlock::Block(self.parse_block()?)
@@ -432,7 +566,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_parameters(&mut self) -> Result<Vec<Parameter>, String> {
-        self.consume(TokenType::OpenParen, "Expected '(' to start a parameter list.")?;
+        self.consume(
+            TokenType::OpenParen,
+            "Expected '(' to start a parameter list.",
+        )?;
         let mut params = Vec::new();
         if !self.check(TokenType::CloseParen) {
             loop {
