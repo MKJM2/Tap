@@ -1,4 +1,4 @@
-use std::fmt::{self, Binary};
+use std::fmt;
 
 /// Represents a span of code in the source file, from `start` to `end` character offset.
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -471,6 +471,9 @@ pub enum BinaryOperator {
     And,
     Or,
 
+    // Assignment
+    Assign,
+
     // Assignment with operation
     AddAssign,
     SubtractAssign,
@@ -516,6 +519,7 @@ impl fmt::Display for BinaryOperator {
             BinaryOperator::LessThanEqual => write!(f, "<="),
             BinaryOperator::And => write!(f, "&&"),
             BinaryOperator::Or => write!(f, "||"),
+            BinaryOperator::Assign => write!(f, "="),
             BinaryOperator::AddAssign => write!(f, "+="),
             BinaryOperator::SubtractAssign => write!(f, "-="),
             BinaryOperator::MultiplyAssign => write!(f, "*="),

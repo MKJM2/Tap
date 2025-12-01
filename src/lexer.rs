@@ -430,6 +430,7 @@ impl<'a> Lexer<'a> {
             "if" => TokenType::KeywordIf,
             "else" => TokenType::KeywordElse,
             "while" => TokenType::KeywordWhile,
+            "for" => TokenType::KeywordFor,
             "match" => TokenType::KeywordMatch,
             "true" => TokenType::KeywordTrue,
             "false" => TokenType::KeywordFalse,

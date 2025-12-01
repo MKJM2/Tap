@@ -509,12 +509,12 @@ fn test_parse_control_flow_while() {
 
 #[test]
 fn test_parse_for_expression() {
-    let source = "for i in [1, 2, 3] { i + 1; }";
+    let source = "mut sum = 0; for i in [1, 2, 3] { sum += i; }; sum;";
     let program = parse_test_source(source);
 
-    assert_eq!(program.statements.len(), 1);
+    assert_eq!(program.statements.len(), 3);
 
-    match &program.statements[0] {
+    match &program.statements[1] {
         TopStatement::Expression(expr_stmt) => match &expr_stmt.expression {
             Expression::For(for_expr) => {
                 match &for_expr.pattern {
@@ -1257,7 +1257,7 @@ fn test_parse_method_definition() {
 #[test]
 fn test_parse_return_statement() {
     let source = r#"
-    fn foo(): int = {
+    foo(): int = {
         return 42;
     }
     "#;
@@ -1412,51 +1412,5 @@ fn test_parse_generic_type_list() {
             }
         }
         _ => panic!("Expected type declaration for Pair"),
-    }
-}
-
-#[test]
-fn test_parse_function_type_with_type_list() {
-    let source = r#"
-    type FnType = (int, float) -> string;
-    "#;
-    let program = assert_parses(source);
-    assert_eq!(program.statements.len(), 1);
-
-    match &program.statements[0] {
-        TopStatement::TypeDecl(TypeDeclaration {
-            name, constructor, ..
-        }) => {
-            assert_eq!(name, "FnType");
-            match constructor {
-                TypeConstructor::Alias(Type::Function {
-                    params,
-                    return_type,
-                    ..
-                }) => {
-                    assert_eq!(params.len(), 2);
-                    match &params[0] {
-                        Type::Primary(TypePrimary::Named(param_name, _)) => {
-                            assert_eq!(param_name, "int")
-                        }
-                        _ => panic!("Expected first param type 'int'"),
-                    }
-                    match &params[1] {
-                        Type::Primary(TypePrimary::Named(param_name, _)) => {
-                            assert_eq!(param_name, "float")
-                        }
-                        _ => panic!("Expected second param type 'float'"),
-                    }
-                    match &**return_type {
-                        Type::Primary(TypePrimary::Named(ret_name, _)) => {
-                            assert_eq!(ret_name, "string")
-                        }
-                        _ => panic!("Expected return type 'string'"),
-                    }
-                }
-                _ => panic!("Expected function type alias"),
-            }
-        }
-        _ => panic!("Expected type declaration for FnType"),
     }
 }

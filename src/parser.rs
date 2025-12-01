@@ -473,49 +473,49 @@ impl<'a> Parser<'a> {
             return Ok(Statement::Continue(span));
         }
 
-        // Handle while loops
-        if self.check(TokenType::KeywordWhile) {
-            let expr = self.parse_while_statement()?;
-            self.match_token(&[TokenType::Semicolon]);
-            let span = expr.span();
-            return Ok(Statement::Expression(ExpressionStatement {
-                expression: expr,
-                span,
-            }));
-        }
+        // // Handle while loops
+        // if self.check(TokenType::KeywordWhile) {
+        //     let expr = self.parse_while_statement()?;
+        //     self.match_token(&[TokenType::Semicolon]);
+        //     let span = expr.span();
+        //     return Ok(Statement::Expression(ExpressionStatement {
+        //         expression: expr,
+        //         span,
+        //     }));
+        // }
 
-        // Handle for loops
-        if self.is_contextual_keyword("for") {
-            let expr = self.parse_for_statement()?;
-            self.match_token(&[TokenType::Semicolon]);
-            let span = expr.span();
-            return Ok(Statement::Expression(ExpressionStatement {
-                expression: expr,
-                span,
-            }));
-        }
+        // // Handle for loops
+        // if self.is_contextual_keyword("for") {
+        //     let expr = self.parse_for_statement()?;
+        //     self.match_token(&[TokenType::Semicolon]);
+        //     let span = expr.span();
+        //     return Ok(Statement::Expression(ExpressionStatement {
+        //         expression: expr,
+        //         span,
+        //     }));
+        // }
 
         // Handle if expressions
-        if self.check(TokenType::KeywordIf) {
-            let expr = self.parse_if_expression()?;
-            self.match_token(&[TokenType::Semicolon]);
-            let span = expr.span();
-            return Ok(Statement::Expression(ExpressionStatement {
-                expression: expr,
-                span,
-            }));
-        }
+        // if self.check(TokenType::KeywordIf) {
+        //     let expr = self.parse_if_expression()?;
+        //     self.match_token(&[TokenType::Semicolon]);
+        //     let span = expr.span();
+        //     return Ok(Statement::Expression(ExpressionStatement {
+        //         expression: expr,
+        //         span,
+        //     }));
+        // }
 
         // Handle match expressions
-        if self.check(TokenType::KeywordMatch) {
-            let expr = self.parse_match_expression()?;
-            self.match_token(&[TokenType::Semicolon]);
-            let span = expr.span();
-            return Ok(Statement::Expression(ExpressionStatement {
-                expression: expr,
-                span,
-            }));
-        }
+        // if self.check(TokenType::KeywordMatch) {
+        //     let expr = self.parse_match_expression()?;
+        //     self.match_token(&[TokenType::Semicolon]);
+        //     let span = expr.span();
+        //     return Ok(Statement::Expression(ExpressionStatement {
+        //         expression: expr,
+        //         span,
+        //     }));
+        // }
 
         // Function definitions
         if self.peek().token_type.is_identifier()
@@ -882,7 +882,7 @@ impl<'a> Parser<'a> {
             let right = self.parse_assignment_expression()?;
             let span = Span::new(expr.span().start, right.span().end);
             let operator = match op_token.token_type {
-                TokenType::Assign => BinaryOperator::AddAssign,
+                TokenType::Assign => BinaryOperator::Assign,
                 TokenType::PlusEqual => BinaryOperator::AddAssign,
                 TokenType::MinusEqual => BinaryOperator::SubtractAssign,
                 TokenType::StarEqual => BinaryOperator::MultiplyAssign,
@@ -1133,6 +1133,8 @@ impl<'a> Parser<'a> {
         match &token.token_type {
             TokenType::KeywordIf => self.parse_if_expression(),
             TokenType::KeywordMatch => self.parse_match_expression(),
+            TokenType::KeywordWhile => self.parse_while_statement(),
+            TokenType::KeywordFor => self.parse_for_statement(),
             TokenType::Integer(i) => {
                 self.advance();
                 Ok(Expression::Primary(PrimaryExpression::Literal(
@@ -1680,51 +1682,68 @@ impl<'a> Parser<'a> {
         let mut final_expression = None;
 
         while !self.check(TokenType::CloseBrace) && !self.is_at_end() {
-            let is_special_statement = self.peek().token_type == TokenType::KeywordMut
-                || self.check(TokenType::KeywordWhile)
-                || self.check(TokenType::KeywordReturn)
+            // Only these MUST be statements (cannot be final expressions)
+            let must_be_statement = self.peek().token_type == TokenType::KeywordReturn
                 || self.check(TokenType::KeywordBreak)
-                || self.check(TokenType::KeywordContinue)
-                || self.check(TokenType::KeywordIf)
-                || self.check(TokenType::KeywordMatch)
-                || self.is_contextual_keyword("for")
-                || (self.peek().token_type.is_identifier()
-                    && self.peek_next().token_type == TokenType::OpenParen
-                    && self.looks_like_function_definition())
-                || (self.peek().token_type.is_identifier()
-                    && (self.peek_next().token_type == TokenType::Colon));
+                || self.check(TokenType::KeywordContinue);
 
-            if is_special_statement {
+            if must_be_statement {
                 statements.push(self.parse_statement()?);
                 continue;
             }
 
+            // Special case: 'mut' keyword starts a let statement
+            if self.peek().token_type == TokenType::KeywordMut {
+                statements.push(self.parse_statement()?);
+                continue;
+            }
+
+            // Special case: identifier with : or identifier with ( that looks like function def
+            if self.peek().token_type.is_identifier() {
+                let next_token = self.peek_next().token_type.clone();
+                if next_token == TokenType::Colon
+                    || (next_token == TokenType::OpenParen && self.looks_like_function_definition())
+                {
+                    statements.push(self.parse_statement()?);
+                    continue;
+                }
+            }
+
+            // Try to parse as expression
             let expr = self.parse_expression()?;
 
-            let is_control_flow = matches!(
+            // Check if expression ends with a closing brace (control flow constructs)
+            let expr_ends_with_brace = matches!(
                 expr,
                 Expression::If(_)
                     | Expression::While(_)
                     | Expression::For(_)
                     | Expression::Match(_)
+                    | Expression::Block(_)
             );
 
-            if self.match_token(&[TokenType::Semicolon]) {
+            // Decide if it's a final expression or a statement
+            if self.check(TokenType::CloseBrace) {
+                // At end of block - this is the final expression
+                final_expression = Some(Box::new(expr));
+                break;
+            } else if self.match_token(&[TokenType::Semicolon]) {
+                // Has semicolon - it's a statement
                 let span = Span::new(expr.span().start, self.previous().span.end);
                 statements.push(Statement::Expression(ExpressionStatement {
                     expression: expr,
                     span,
                 }));
-            } else if is_control_flow {
+            } else if expr_ends_with_brace {
+                // Expression ends with } and is not at end of block
+                // Treat as statement (allows while/for/if/match to be followed by more code)
                 let span = expr.span();
                 statements.push(Statement::Expression(ExpressionStatement {
                     expression: expr,
                     span,
                 }));
-            } else if self.check(TokenType::CloseBrace) {
-                final_expression = Some(Box::new(expr));
-                break;
             } else {
+                // No semicolon, not at end, doesn't end with brace - error
                 let found = self.peek().clone();
                 return Err(self.error(
                     found.span,
