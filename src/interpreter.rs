@@ -11,6 +11,7 @@ pub enum Value {
     Float(f64),
     String(String),
     Boolean(bool),
+    List(Vec<Value>),
     Unit,
 }
 
@@ -41,10 +42,7 @@ impl Interpreter {
         Ok(last_val)
     }
 
-    fn eval_top_statement(
-        &mut self,
-        statement: &TopStatement,
-    ) -> Result<Value, RuntimeError> {
+    fn eval_top_statement(&mut self, statement: &TopStatement) -> Result<Value, RuntimeError> {
         match statement {
             TopStatement::Expression(expr_stmt) => self.eval_expr(&expr_stmt.expression),
             TopStatement::LetStmt(let_stmt) => self.eval_let_statement(let_stmt),

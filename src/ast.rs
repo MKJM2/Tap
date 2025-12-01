@@ -142,6 +142,9 @@ pub struct Block {
 pub enum Statement {
     Let(LetStatement),
     Expression(ExpressionStatement),
+    Return(Option<Expression>, Span),
+    Break(Span),
+    Continue(Span),
 }
 
 impl Statement {
@@ -149,6 +152,9 @@ impl Statement {
         match self {
             Statement::Let(let_stmt) => let_stmt.span(),
             Statement::Expression(expr_stmt) => expr_stmt.span,
+            Statement::Return(_, span) => *span,
+            Statement::Break(span) => *span,
+            Statement::Continue(span) => *span,
         }
     }
 }
@@ -186,9 +192,9 @@ pub enum TypePrimary {
     Named(String, Span), // e.g., "Int", "String", "MyStruct"
     Generic {
         name: String,
-        arg: Box<Type>,
+        args: Vec<Type>,
         span: Span,
-    }, // e.g., "Option[Int]"
+    }, // e.g., "Option[Int, String]"
     Record(RecordType),
     List(Box<Type>, Span), // e.g., "[Int]"
 }
@@ -319,6 +325,7 @@ pub enum Pattern {
         patterns: Option<Vec<Pattern>>, // For variants with data, e.g., Some(x)
         span: Span,
     },
+    Literal(LiteralValue, Span), // For literal patterns: int, float, string, bool, None
 }
 
 impl Pattern {
@@ -327,6 +334,7 @@ impl Pattern {
             Pattern::Wildcard(span) => *span,
             Pattern::Identifier(_, span) => *span,
             Pattern::Variant { span, .. } => *span,
+            Pattern::Literal(_, span) => *span,
         }
     }
 }

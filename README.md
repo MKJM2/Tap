@@ -1,9 +1,11 @@
 # Tap
 
-An unremarkable but deliberately _Polished_ interpreted programming language. Originally built
-as a personal project to learn C++20 (CMake, Gtest, and other ritual sacrifices),
-it has since been rewritten in Rust (I like the convenience of match statements compared to std::visit (bleh)).
-Currently in infancy. The short term goal is to solve all Advent of Code problems using Tap. There is no long term goal.
+An unremarkable but deliberately _Polished_ interpreted programming language.
+Originally built as a personal project to learn C++20 (CMake, Gtest, and other
+ritual sacrifices), it has since been rewritten. Currently in its infancy.
+
+The short term goal is to solve all Advent of Code problems using Tap. There is
+no long term goal. The purpose of this project was and remains education and fun.
 
 ## Current state of affairs:
 - Rust / C++ inspired syntax
@@ -20,14 +22,16 @@ or [nom](https://docs.rs/nom/latest/nom/) creating parsers. People older to the 
 
 
 ## Planned features
-- floating point numbers (lol)
-- match statements
 - type inference
-- byte code compilation
+- emitting byte code + a VM implementation
 - VM
 - potentially experimenting into JIT compilation (but nothing too serious, I have a life)
+- a faster, state machine based lexer (DFA)
+    - might require edits to the Tap grammar
+    - perfect hashing for keywords?
+    - cache friendly token storage
 
-### Syntax examples
+### Tap syntax examples
 ```
 // Type Declarations
 
@@ -236,14 +240,14 @@ complex_expr(): int = {
 }
 ```
 
-# EBNF (WIP)
+# EBNF Grammar (WIP)
 ```ebnf
 <program> ::= <top_stmt_list>
 
 <top_stmt_list> ::= (<top_stmt>)*
 
 <top_stmt> ::= <type_decl> ";"
-             | <let_stmt>
+             | <binding_stmt>
              | <expr_stmt>
 
 <expr_stmt> ::= <expr> ";"
@@ -252,12 +256,12 @@ complex_expr(): int = {
 
 <type_name> ::= <identifier>
 
-<type_ctor> ::= <sum_ctor> | <record_type>
+<type_ctor> ::= <sum_ctor> | <record_type> | <type>
 
 <sum_ctor> ::= <variant> ( "|" <variant> )*
 <variant> ::= <identifier> "(" <type> ")" | <identifier>
 
-<let_stmt> ::= <fn_bind> | <var_bind>
+<binding_stmt> ::= <fn_bind> | <var_bind>
 
 <fn_bind> ::= <opt_mut> <identifier> <param_list> ":" <type> "=" <block>
 
@@ -278,7 +282,13 @@ complex_expr(): int = {
 
 <stmt_list> ::= (<stmt>)*
 
-<stmt> ::= <let_stmt> | <expr> ";"
+<stmt> ::= <binding_stmt> | <return_stmt> | <break_stmt> | <continue_stmt> | <expr> ";"
+
+<return_stmt> ::= "return" <expr>? ";"
+
+<break_stmt> ::= "break" ";"
+
+<continue_stmt> ::= "continue" ";"
 
 <expr_opt> ::= <expr> | E
 
@@ -336,16 +346,22 @@ complex_expr(): int = {
 
 <type_func> ::= <type_primary> ( "->" <type> )?
 
+<type_list> ::= <type> ("," <type>)*
+
 <type_primary> ::= <type_name>
                   | <generic_type>
                   | <record_type>
                   | "[" <type> "]"
 
-<generic_type> ::= <type_name> "[" <type> "]"
+<generic_type> ::= <type_name> "[" <type_list> "]"
 
-<record_type> ::= "{" (<field_decl> ("," <field_decl>)*)? "}"
+<record_type> ::= "{" (<record_member> ("," <record_member>)*)? "}"
+
+<record_member> ::= <field_decl> | <method_decl>
 
 <field_decl> ::= <identifier> ":" <type>
+
+<method_decl> ::= <identifier> <param_list> ":" <type> "=" <block>
 
 <bin_op> ::= "+" | "-" | "*" | "/"
            | "==" | "!="

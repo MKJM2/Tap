@@ -30,15 +30,17 @@ pub enum TokenType {
     Minus,            // -
     Star,             // *
     Slash,            // /
+    Percent,          // %
     AmpAmp,           // &&
     Pipe,             // |
     PipePipe,         // ||
 
     // Compound assignment operators
-    PlusEqual,  // +=
-    MinusEqual, // -=
-    StarEqual,  // *=
-    SlashEqual, // /=
+    PlusEqual,    // +=
+    MinusEqual,   // -=
+    StarEqual,    // *=
+    SlashEqual,   // /=
+    PercentEqual, // %=
 
     // Fat arrow for lambdas and match arms
     FatArrow, // =>
@@ -84,6 +86,8 @@ impl fmt::Display for TokenType {
             TokenType::Integer(i) => write!(f, "INTEGER({})", i),
             TokenType::Float(fl) => write!(f, "FLOAT({})", fl),
             TokenType::String(s) => write!(f, "STRING(\"{}\")", s),
+            TokenType::Percent => write!(f, "PERCENT"),
+            TokenType::PercentEqual => write!(f, "PERCENT_EQUAL"),
             _ => write!(f, "{:?}", self),
         }
     }
@@ -94,6 +98,16 @@ pub struct Token {
     pub token_type: TokenType,
     pub lexeme: String,
     pub span: Span,
+}
+
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{} ({}:{})",
+            self.token_type, self.span.start, self.span.end
+        )
+    }
 }
 
 impl Token {
@@ -291,6 +305,14 @@ impl<'a> Lexer<'a> {
                     self.add_token(TokenType::SlashEqual);
                 } else {
                     self.add_token(TokenType::Slash);
+                }
+            }
+            '%' => {
+                self.advance();
+                if self.match_char('=') {
+                    self.add_token(TokenType::PercentEqual);
+                } else {
+                    self.add_token(TokenType::Percent);
                 }
             }
             '&' => {

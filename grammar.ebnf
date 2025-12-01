@@ -3,7 +3,7 @@
 <top_stmt_list> ::= (<top_stmt>)*
 
 <top_stmt> ::= <type_decl> ";"
-             | <let_stmt>
+             | <binding_stmt>
              | <expr_stmt>
 
 <expr_stmt> ::= <expr> ";"
@@ -12,12 +12,12 @@
 
 <type_name> ::= <identifier>
 
-<type_ctor> ::= <sum_ctor> | <record_type>
+<type_ctor> ::= <sum_ctor> | <record_type> | <type>
 
 <sum_ctor> ::= <variant> ( "|" <variant> )*
 <variant> ::= <identifier> "(" <type> ")" | <identifier>
 
-<let_stmt> ::= <fn_bind> | <var_bind>
+<binding_stmt> ::= <fn_bind> | <var_bind>
 
 <fn_bind> ::= <opt_mut> <identifier> <param_list> ":" <type> "=" <block>
 
@@ -38,7 +38,13 @@
 
 <stmt_list> ::= (<stmt>)*
 
-<stmt> ::= <let_stmt> | <expr> ";"
+<stmt> ::= <binding_stmt> | <return_stmt> | <break_stmt> | <continue_stmt> | <expr> ";"
+
+<return_stmt> ::= "return" <expr>? ";"
+
+<break_stmt> ::= "break" ";"
+
+<continue_stmt> ::= "continue" ";"
 
 <expr_opt> ::= <expr> | E
 
@@ -96,16 +102,22 @@
 
 <type_func> ::= <type_primary> ( "->" <type> )?
 
+<type_list> ::= <type> ("," <type>)*
+
 <type_primary> ::= <type_name>
                   | <generic_type>
                   | <record_type>
                   | "[" <type> "]"
 
-<generic_type> ::= <type_name> "[" <type> "]"
+<generic_type> ::= <type_name> "[" <type_list> "]"
 
-<record_type> ::= "{" (<field_decl> ("," <field_decl>)*)? "}"
+<record_type> ::= "{" (<record_member> ("," <record_member>)*)? "}"
+
+<record_member> ::= <field_decl> | <method_decl>
 
 <field_decl> ::= <identifier> ":" <type>
+
+<method_decl> ::= <identifier> <param_list> ":" <type> "=" <block>
 
 <bin_op> ::= "+" | "-" | "*" | "/"
            | "==" | "!="

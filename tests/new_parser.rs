@@ -1,10 +1,6 @@
 // This file will contain tests for the new parser based on the updated grammar and AST.
 
-use tap::ast::{
-    BinaryExpression, BinaryOperator, Expression, ExpressionOrBlock, LetStatement, LiteralValue,
-    Pattern, PostfixOperator, PrimaryExpression, Program, Span, TopStatement, Type,
-    TypeConstructor, TypePrimary, UnaryOperator,
-};
+use tap::ast::*;
 use tap::diagnostics::Reporter;
 use tap::lexer::Lexer;
 use tap::parser::Parser;
@@ -1255,5 +1251,212 @@ fn test_parse_method_definition() {
         }
 
         _ => panic!("Expected variable binding"),
+    }
+}
+
+#[test]
+fn test_parse_return_statement() {
+    let source = r#"
+    fn foo(): int = {
+        return 42;
+    }
+    "#;
+    let program = assert_parses(source);
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::LetStmt(LetStatement::Function(func)) => {
+            assert_eq!(func.name, "foo");
+            assert_eq!(func.params.len(), 0);
+            match &func.return_type {
+                Type::Primary(TypePrimary::Named(name, _)) => assert_eq!(name, "int"),
+                _ => panic!("Expected return type 'int'"),
+            }
+            // Check block contains a single statement: return 42;
+            assert_eq!(func.body.statements.len(), 1);
+            match &func.body.statements[0] {
+                Statement::Return(Some(expr), _) => match expr {
+                    Expression::Primary(PrimaryExpression::Literal(
+                        LiteralValue::Integer(val),
+                        _,
+                    )) => {
+                        assert_eq!(*val, 42);
+                    }
+                    _ => panic!("Expected integer literal in return"),
+                },
+                Statement::Return(None, _) => {
+                    panic!("Expected return with value, got return without value");
+                }
+                Statement::Let(_) => panic!("Expected return statement, got let"),
+                Statement::Expression(_) => panic!("Expected return statement, got expression"),
+                Statement::Break(_) => panic!("Unexpected break statement"),
+                Statement::Continue(_) => panic!("Unexpected continue statement"),
+            }
+            assert!(func.body.final_expression.is_none());
+        }
+        _ => panic!("Expected function binding"),
+    }
+}
+
+#[test]
+fn test_parse_break_and_continue_statements() {
+    let source = r#"
+    while (true) {
+        break;
+        continue;
+    }
+    "#;
+    let program = assert_parses(source);
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::Expression(ExpressionStatement { expression, .. }) => {
+            match expression {
+                Expression::While(while_expr) => {
+                    // Condition should be 'true'
+                    match &*while_expr.condition {
+                        Expression::Primary(PrimaryExpression::Literal(
+                            LiteralValue::Boolean(true),
+                            _,
+                        )) => {}
+                        _ => panic!("Expected 'true' condition in while"),
+                    }
+                    // Block should contain break and continue
+                    assert_eq!(while_expr.body.statements.len(), 2);
+                    match &while_expr.body.statements[0] {
+                        Statement::Break(_) => {}
+                        _ => panic!("Expected break statement"),
+                    }
+                    match &while_expr.body.statements[1] {
+                        Statement::Continue(_) => {}
+                        _ => panic!("Expected continue statement"),
+                    }
+                }
+                _ => panic!("Expected while expression"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_generic_type_list() {
+    let source = r#"
+    type Map = Map[string, int];
+    type Pair = Pair[int, float];
+    "#;
+    let program = assert_parses(source);
+    assert_eq!(program.statements.len(), 2);
+
+    // First: type Map = Map[string, int];
+    match &program.statements[0] {
+        TopStatement::TypeDecl(TypeDeclaration {
+            name, constructor, ..
+        }) => {
+            assert_eq!(name, "Map");
+            match constructor {
+                TypeConstructor::Alias(Type::Primary(TypePrimary::Generic {
+                    name: generic_name,
+                    args,
+                    ..
+                })) => {
+                    assert_eq!(generic_name, "Map");
+                    assert_eq!(args.len(), 2);
+                    match &args[0] {
+                        Type::Primary(TypePrimary::Named(type_name, _)) => {
+                            assert_eq!(type_name, "string")
+                        }
+                        _ => panic!("Expected first generic arg to be 'string'"),
+                    }
+                    match &args[1] {
+                        Type::Primary(TypePrimary::Named(type_name, _)) => {
+                            assert_eq!(type_name, "int")
+                        }
+                        _ => panic!("Expected second generic arg to be 'int'"),
+                    }
+                }
+                _ => panic!("Expected generic type alias for Map"),
+            }
+        }
+        _ => panic!("Expected type declaration for Map"),
+    }
+
+    // Second: type Pair = Pair[int, float];
+    match &program.statements[1] {
+        TopStatement::TypeDecl(TypeDeclaration {
+            name, constructor, ..
+        }) => {
+            assert_eq!(name, "Pair");
+            match constructor {
+                TypeConstructor::Alias(Type::Primary(TypePrimary::Generic {
+                    name: generic_name,
+                    args,
+                    ..
+                })) => {
+                    assert_eq!(generic_name, "Pair");
+                    assert_eq!(args.len(), 2);
+                    match &args[0] {
+                        Type::Primary(TypePrimary::Named(type_name, _)) => {
+                            assert_eq!(type_name, "int")
+                        }
+                        _ => panic!("Expected first generic arg to be 'int'"),
+                    }
+                    match &args[1] {
+                        Type::Primary(TypePrimary::Named(type_name, _)) => {
+                            assert_eq!(type_name, "float")
+                        }
+                        _ => panic!("Expected second generic arg to be 'float'"),
+                    }
+                }
+                _ => panic!("Expected generic type alias for Pair"),
+            }
+        }
+        _ => panic!("Expected type declaration for Pair"),
+    }
+}
+
+#[test]
+fn test_parse_function_type_with_type_list() {
+    let source = r#"
+    type FnType = (int, float) -> string;
+    "#;
+    let program = assert_parses(source);
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::TypeDecl(TypeDeclaration {
+            name, constructor, ..
+        }) => {
+            assert_eq!(name, "FnType");
+            match constructor {
+                TypeConstructor::Alias(Type::Function {
+                    params,
+                    return_type,
+                    ..
+                }) => {
+                    assert_eq!(params.len(), 2);
+                    match &params[0] {
+                        Type::Primary(TypePrimary::Named(param_name, _)) => {
+                            assert_eq!(param_name, "int")
+                        }
+                        _ => panic!("Expected first param type 'int'"),
+                    }
+                    match &params[1] {
+                        Type::Primary(TypePrimary::Named(param_name, _)) => {
+                            assert_eq!(param_name, "float")
+                        }
+                        _ => panic!("Expected second param type 'float'"),
+                    }
+                    match &**return_type {
+                        Type::Primary(TypePrimary::Named(ret_name, _)) => {
+                            assert_eq!(ret_name, "string")
+                        }
+                        _ => panic!("Expected return type 'string'"),
+                    }
+                }
+                _ => panic!("Expected function type alias"),
+            }
+        }
+        _ => panic!("Expected type declaration for FnType"),
     }
 }

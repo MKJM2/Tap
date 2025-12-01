@@ -426,8 +426,44 @@ impl<'a> Parser<'a> {
 
         match &token.token_type {
             TokenType::Identifier(name) => {
+                // Check for generic type: Foo[...]
+                let name = name.clone();
                 self.advance();
-                Ok(Type::Primary(TypePrimary::Named(name.clone(), span)))
+                if self.check(TokenType::OpenBracket) {
+                    self.advance(); // consume '['
+                    let mut args = Vec::new();
+                    while !self.check(TokenType::CloseBracket) && !self.is_at_end() {
+                        args.push(self.parse_type()?);
+                        if !self.match_token(&[TokenType::Comma]) {
+                            break;
+                        }
+                    }
+                    self.consume(
+                        TokenType::CloseBracket,
+                        "Expected ']' after generic type arguments.",
+                        Some("while parsing a generic type"),
+                    )?;
+                    Ok(Type::Primary(TypePrimary::Generic {
+                        name,
+                        args,
+                        span: Span::new(span.start, self.previous().span.end),
+                    }))
+                } else {
+                    Ok(Type::Primary(TypePrimary::Named(name, span)))
+                }
+            }
+            TokenType::OpenBracket => {
+                self.advance(); // consume '['
+                let inner_type = self.parse_type()?;
+                self.consume(
+                    TokenType::CloseBracket,
+                    "Expected ']' after list type.",
+                    Some("while parsing a list type"),
+                )?;
+                Ok(Type::Primary(TypePrimary::List(
+                    Box::new(inner_type),
+                    Span::new(span.start, self.previous().span.end),
+                )))
             }
             TokenType::OpenBrace => {
                 let record_type = self.parse_record_type()?;
@@ -1089,34 +1125,65 @@ impl<'a> Parser<'a> {
             return Ok(Pattern::Identifier("None".to_string(), token.span));
         }
 
-        if let TokenType::Identifier(name) = token.token_type.clone() {
-            self.advance();
-
-            // Check for variant with payload: Some(x)
-            if self.check(TokenType::OpenParen) {
+        // Literal patterns
+        match &token.token_type {
+            TokenType::Integer(i) => {
                 self.advance();
-                let mut patterns = Vec::new();
-                while !self.check(TokenType::CloseParen) && !self.is_at_end() {
-                    patterns.push(self.parse_pattern()?);
-                    if !self.match_token(&[TokenType::Comma]) {
-                        break;
-                    }
-                }
-                self.consume(
-                    TokenType::CloseParen,
-                    "Expected ')' after pattern.",
-                    Some("while parsing a pattern"),
-                )?;
-                let end_span = self.previous().span;
-                let span = Span::new(token.span.start, end_span.end);
-                return Ok(Pattern::Variant {
-                    name,
-                    patterns: Some(patterns),
-                    span,
-                });
-            } else {
-                return Ok(Pattern::Identifier(name, token.span));
+                return Ok(Pattern::Literal(LiteralValue::Integer(*i), token.span));
             }
+            TokenType::Float(f) => {
+                self.advance();
+                return Ok(Pattern::Literal(LiteralValue::Float(*f), token.span));
+            }
+            TokenType::String(s) => {
+                self.advance();
+                return Ok(Pattern::Literal(
+                    LiteralValue::String(s.clone()),
+                    token.span,
+                ));
+            }
+            TokenType::KeywordTrue => {
+                self.advance();
+                return Ok(Pattern::Literal(LiteralValue::Boolean(true), token.span));
+            }
+            TokenType::KeywordFalse => {
+                self.advance();
+                return Ok(Pattern::Literal(LiteralValue::Boolean(false), token.span));
+            }
+            TokenType::KeywordNone => {
+                self.advance();
+                return Ok(Pattern::Literal(LiteralValue::None, token.span));
+            }
+            TokenType::Identifier(name) => {
+                self.advance();
+
+                // Check for variant with payload: Some(x)
+                if self.check(TokenType::OpenParen) {
+                    self.advance();
+                    let mut patterns = Vec::new();
+                    while !self.check(TokenType::CloseParen) && !self.is_at_end() {
+                        patterns.push(self.parse_pattern()?);
+                        if !self.match_token(&[TokenType::Comma]) {
+                            break;
+                        }
+                    }
+                    self.consume(
+                        TokenType::CloseParen,
+                        "Expected ')' after pattern.",
+                        Some("while parsing a pattern"),
+                    )?;
+                    let end_span = self.previous().span;
+                    let span = Span::new(token.span.start, end_span.end);
+                    return Ok(Pattern::Variant {
+                        name: name.clone(),
+                        patterns: Some(patterns),
+                        span,
+                    });
+                } else {
+                    return Ok(Pattern::Identifier(name.clone(), token.span));
+                }
+            }
+            _ => {}
         }
 
         let msg = format!("Expected pattern, but found {:?}.", token.token_type);
