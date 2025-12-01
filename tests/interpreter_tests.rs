@@ -518,7 +518,7 @@ mod interpreter_tests {
         let source = "
             type Circle = {
                 radius: float,
-                area(this): float = { 3.14 * this.radius * this.radius };
+                area(this): float = { 3.14 * this.radius * this.radius },
             }
             mut c: Circle = { radius: 5.0 };
             c.radius = 10.0;

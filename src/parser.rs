@@ -1,6 +1,8 @@
 use crate::ast::*;
 use crate::diagnostics::{Diagnostic, DiagnosticKind, Reporter};
 use crate::lexer::{Token, TokenType};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 /// Structured parse error used as the error type in parser `Result`s.
 #[derive(Debug, Clone)]
@@ -20,10 +22,29 @@ impl ParseError {
     }
 }
 
+/// RAII guard for parse contexts - automatically pops context on drop
+pub struct ContextGuard {
+    stack: Rc<RefCell<Vec<String>>>,
+}
+
+impl ContextGuard {
+    fn new(stack: Rc<RefCell<Vec<String>>>, context: &str) -> Self {
+        stack.borrow_mut().push(context.to_string());
+        ContextGuard { stack }
+    }
+}
+
+impl Drop for ContextGuard {
+    fn drop(&mut self) {
+        self.stack.borrow_mut().pop();
+    }
+}
+
 pub struct Parser<'a> {
     tokens: &'a [Token],
     current: usize,
     reporter: &'a mut Reporter,
+    parse_stack: Rc<RefCell<Vec<String>>>,
 }
 
 impl<'a> Parser<'a> {
@@ -32,37 +53,52 @@ impl<'a> Parser<'a> {
             tokens,
             current: 0,
             reporter,
+            parse_stack: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
-    fn error(&mut self, span: Span, message: String, context: Option<&str>) -> ParseError {
-        let diagnostic = if let Some(ctx) = context {
-            Diagnostic::new(DiagnosticKind::Error, message.clone(), span)
-                .with_context(ctx.to_string())
+    /// Create an RAII context guard
+    fn context(&self, context: &str) -> ContextGuard {
+        ContextGuard::new(Rc::clone(&self.parse_stack), context)
+    }
+
+    /// Get the current parsing context chain as a string
+    fn current_context_chain(&self) -> String {
+        let stack = self.parse_stack.borrow();
+        if stack.is_empty() {
+            "top level".to_string()
         } else {
-            Diagnostic::new(DiagnosticKind::Error, message.clone(), span)
-        };
+            stack.join(" -> ")
+        }
+    }
+
+    fn error(&mut self, span: Span, message: String, _context: Option<&str>) -> ParseError {
+        let full_context = self.current_context_chain();
+        let diagnostic = Diagnostic::new(DiagnosticKind::Error, message.clone(), span)
+            .with_context(full_context.clone());
 
         self.reporter.add_diagnostic(diagnostic);
-        ParseError::new(message, span, context.map(|s| s.to_string()))
+        ParseError::new(message, span, Some(full_context))
     }
 
     fn consume(
         &mut self,
         expected: TokenType,
         message: &str,
-        context: Option<&str>,
+        _context: Option<&str>,
     ) -> Result<&Token, ParseError> {
         if self.check(expected.clone()) {
             Ok(self.advance())
         } else {
             let found = self.peek().clone();
             let full_message = format!("{} Found {:?} instead.", message, found.token_type);
-            Err(self.error(found.span, full_message, context))
+            Err(self.error(found.span, full_message, None))
         }
     }
 
     pub fn parse_program(&mut self) -> Result<Program, ParseError> {
+        let _ctx = self.context("program");
+
         let mut statements = Vec::new();
         let start_span = self.peek().span;
 
@@ -80,6 +116,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_top_statement(&mut self) -> Result<TopStatement, ParseError> {
+        let _ctx = self.context("top-level statement");
+
         // Handle type declarations
         if self.check(TokenType::KeywordType) {
             return self.parse_type_declaration().map(TopStatement::TypeDecl);
@@ -88,7 +126,6 @@ impl<'a> Parser<'a> {
         // Handle while loops
         if self.check(TokenType::KeywordWhile) {
             let expr = self.parse_while_statement()?;
-            // Optional semicolon after while expression
             self.match_token(&[TokenType::Semicolon]);
             let span = Span::new(expr.span().start, self.previous().span.end);
             return Ok(TopStatement::Expression(ExpressionStatement {
@@ -100,7 +137,6 @@ impl<'a> Parser<'a> {
         // Handle for loops (contextual keyword)
         if self.is_contextual_keyword("for") {
             let expr = self.parse_for_statement()?;
-            // Optional semicolon after for expression
             self.match_token(&[TokenType::Semicolon]);
             let span = Span::new(expr.span().start, self.previous().span.end);
             return Ok(TopStatement::Expression(ExpressionStatement {
@@ -112,7 +148,6 @@ impl<'a> Parser<'a> {
         // Handle if expressions
         if self.check(TokenType::KeywordIf) {
             let expr = self.parse_if_expression()?;
-            // Optional semicolon after if expression
             self.match_token(&[TokenType::Semicolon]);
             let span = Span::new(expr.span().start, self.previous().span.end);
             return Ok(TopStatement::Expression(ExpressionStatement {
@@ -124,7 +159,6 @@ impl<'a> Parser<'a> {
         // Handle match expressions
         if self.check(TokenType::KeywordMatch) {
             let expr = self.parse_match_expression()?;
-            // Optional semicolon after match expression
             self.match_token(&[TokenType::Semicolon]);
             let span = Span::new(expr.span().start, self.previous().span.end);
             return Ok(TopStatement::Expression(ExpressionStatement {
@@ -139,7 +173,6 @@ impl<'a> Parser<'a> {
         {
             if self.looks_like_function_definition() {
                 let func_stmt = self.parse_function_statement()?;
-                // Optional semicolon after function definition
                 self.match_token(&[TokenType::Semicolon]);
                 return Ok(TopStatement::LetStmt(func_stmt));
             }
@@ -171,35 +204,61 @@ impl<'a> Parser<'a> {
     }
 
     fn looks_like_function_definition(&self) -> bool {
-        let idx = self.current + 2; // Skip identifier and OpenParen
+        let mut idx = self.current + 2; // Skip identifier and OpenParen
 
         // Empty params: `()` - check if followed by `:` or `=`
         if idx < self.tokens.len() && self.tokens[idx].token_type == TokenType::CloseParen {
-            // Check what comes after `)`
             if idx + 1 < self.tokens.len() {
                 let next = &self.tokens[idx + 1].token_type;
-                // Function def has `:` (return type) or `=` (no return type)
                 return matches!(next, TokenType::Colon | TokenType::Assign);
             }
             return false;
         }
 
-        // Check for `identifier :`  (parameter)
-        if idx < self.tokens.len() && self.tokens[idx].token_type.is_identifier() {
-            if idx + 1 < self.tokens.len() && self.tokens[idx + 1].token_type == TokenType::Colon {
-                return true;
+        // First token after ( should be an identifier or 'this' for a function definition
+        if idx < self.tokens.len() {
+            if !matches!(
+                &self.tokens[idx].token_type,
+                TokenType::Identifier(_) | TokenType::KeywordThis
+            ) {
+                // Not a function definition - might be a call with a literal argument
+                return false;
             }
+        }
+
+        // Scan through parameters looking for type annotations or return type
+        let mut depth = 1; // We're inside the opening paren
+        while idx < self.tokens.len() && depth > 0 {
+            match &self.tokens[idx].token_type {
+                TokenType::OpenParen => depth += 1,
+                TokenType::CloseParen => {
+                    depth -= 1;
+                    if depth == 0 {
+                        // Found matching close paren, check what follows
+                        if idx + 1 < self.tokens.len() {
+                            let next = &self.tokens[idx + 1].token_type;
+                            // Function def has `:` (return type) or `=` (body)
+                            return matches!(next, TokenType::Colon | TokenType::Assign);
+                        }
+                        return false;
+                    }
+                }
+                TokenType::Colon if depth == 1 => {
+                    // Found a type annotation or return type
+                    return true;
+                }
+                _ => {}
+            }
+            idx += 1;
         }
 
         false
     }
 
     fn parse_type_declaration(&mut self) -> Result<TypeDeclaration, ParseError> {
-        self.consume(
-            TokenType::KeywordType,
-            "Expected 'type' keyword.",
-            Some("while parsing a type declaration"),
-        )?;
+        let _ctx = self.context("type declaration");
+
+        self.consume(TokenType::KeywordType, "Expected 'type' keyword.", None)?;
 
         let name_token = self.peek().clone();
         let name = if let TokenType::Identifier(s) = name_token.token_type.clone() {
@@ -207,26 +266,14 @@ impl<'a> Parser<'a> {
             s
         } else {
             let msg = format!("Expected type name, but found {:?}.", name_token.token_type);
-            return Err(self.error(
-                name_token.span,
-                msg,
-                Some("while parsing a type declaration"),
-            ));
+            return Err(self.error(name_token.span, msg, None));
         };
 
-        self.consume(
-            TokenType::Assign,
-            "Expected '=' after type name.",
-            Some("while parsing a type declaration"),
-        )?;
+        self.consume(TokenType::Assign, "Expected '=' after type name.", None)?;
 
         let constructor = self.parse_type_constructor()?;
 
-        self.consume(
-            TokenType::Semicolon,
-            "Expected ';' after type declaration.",
-            Some("while parsing a type declaration"),
-        )?;
+        self.match_token(&[TokenType::Semicolon]); // optional after type declaration
 
         let span = Span::new(name_token.span.start, self.previous().span.end);
 
@@ -238,6 +285,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type_constructor(&mut self) -> Result<TypeConstructor, ParseError> {
+        let _ctx = self.context("type constructor");
+
         // Case 1: RecordType (starts with '{')
         if self.check(TokenType::OpenBrace) {
             let record = self.parse_record_type()?;
@@ -251,21 +300,14 @@ impl<'a> Parser<'a> {
         }
 
         // Case 3: Could be a sum type or type alias
-        // Try to parse as variant first
         let saved_pos = self.current;
 
-        // If it's an identifier, check what follows
         if self.peek().token_type.is_identifier()
             || self.peek().token_type == TokenType::KeywordNone
         {
-            // Look ahead to see if this looks like a variant
             let next = self.peek_next().token_type.clone();
 
-            // If followed by '(' it could be a variant with payload
-            // If followed by '|' it's definitely a sum type
-            // If followed by '[' it's a generic type (type alias)
             if next == TokenType::Pipe {
-                // Definitely a sum type
                 match self.parse_variant() {
                     Ok(first_variant) => {
                         let mut variants = vec![first_variant.clone()];
@@ -285,12 +327,9 @@ impl<'a> Parser<'a> {
                     Err(e) => return Err(e),
                 }
             } else if next == TokenType::OpenParen {
-                // Could be variant with payload or function type
-                // Try parsing as variant
                 match self.parse_variant() {
                     Ok(first_variant) => {
                         if self.check(TokenType::Pipe) {
-                            // It's a sum type
                             let mut variants = vec![first_variant.clone()];
                             while self.match_token(&[TokenType::Pipe]) {
                                 variants.push(self.parse_variant()?);
@@ -305,7 +344,6 @@ impl<'a> Parser<'a> {
                                 span: sum_span,
                             }));
                         } else {
-                            // Single variant sum type
                             let span = first_variant.span;
                             return Ok(TypeConstructor::Sum(SumConstructor {
                                 variants: vec![first_variant],
@@ -314,18 +352,15 @@ impl<'a> Parser<'a> {
                         }
                     }
                     Err(_) => {
-                        // Failed to parse as variant, try as type alias
                         self.current = saved_pos;
                         let alias_type = self.parse_type()?;
                         return Ok(TypeConstructor::Alias(alias_type));
                     }
                 }
             } else if next == TokenType::OpenBracket {
-                // Generic type (type alias)
                 let alias_type = self.parse_type()?;
                 return Ok(TypeConstructor::Alias(alias_type));
             } else {
-                // Try parsing as a simple variant (no payload, no pipe)
                 match self.parse_variant() {
                     Ok(variant) => {
                         if self.check(TokenType::Pipe) {
@@ -340,7 +375,6 @@ impl<'a> Parser<'a> {
                                 span: sum_span,
                             }));
                         } else {
-                            // Single variant
                             let span = variant.span;
                             return Ok(TypeConstructor::Sum(SumConstructor {
                                 variants: vec![variant],
@@ -349,7 +383,6 @@ impl<'a> Parser<'a> {
                         }
                     }
                     Err(_) => {
-                        // Not a variant, parse as type alias
                         self.current = saved_pos;
                         let alias_type = self.parse_type()?;
                         return Ok(TypeConstructor::Alias(alias_type));
@@ -358,12 +391,13 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // Fallback: parse as type alias
         let alias_type = self.parse_type()?;
         Ok(TypeConstructor::Alias(alias_type))
     }
 
     fn parse_variant(&mut self) -> Result<Variant, ParseError> {
+        let _ctx = self.context("variant");
+
         let name_token = self.peek().clone();
         let name = match &name_token.token_type {
             TokenType::Identifier(s) => {
@@ -379,11 +413,7 @@ impl<'a> Parser<'a> {
                     "Expected variant name, but found {:?}.",
                     name_token.token_type
                 );
-                return Err(self.error(
-                    name_token.span,
-                    msg,
-                    Some("while parsing a sum type variant"),
-                ));
+                return Err(self.error(name_token.span, msg, None));
             }
         };
 
@@ -393,7 +423,7 @@ impl<'a> Parser<'a> {
             self.consume(
                 TokenType::CloseParen,
                 "Expected ')' after variant payload type.",
-                Some("while parsing a sum type variant"),
+                None,
             )?;
             Some(inner_type)
         } else {
@@ -407,6 +437,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statement(&mut self) -> Result<Statement, ParseError> {
+        let _ctx = self.context("statement");
+
         // Handle return statements
         if self.check(TokenType::KeywordReturn) {
             self.advance();
@@ -419,7 +451,7 @@ impl<'a> Parser<'a> {
             self.consume(
                 TokenType::Semicolon,
                 "Expected ';' after return statement.",
-                Some("while parsing a return statement"),
+                None,
             )?;
             let span = Span::new(start, self.previous().span.end);
             return Ok(Statement::Return(expr, span));
@@ -428,11 +460,7 @@ impl<'a> Parser<'a> {
         // Handle break statements
         if self.check(TokenType::KeywordBreak) {
             let start = self.advance().span.start;
-            self.consume(
-                TokenType::Semicolon,
-                "Expected ';' after break.",
-                Some("while parsing a break statement"),
-            )?;
+            self.consume(TokenType::Semicolon, "Expected ';' after break.", None)?;
             let span = Span::new(start, self.previous().span.end);
             return Ok(Statement::Break(span));
         }
@@ -440,11 +468,7 @@ impl<'a> Parser<'a> {
         // Handle continue statements
         if self.check(TokenType::KeywordContinue) {
             let start = self.advance().span.start;
-            self.consume(
-                TokenType::Semicolon,
-                "Expected ';' after continue.",
-                Some("while parsing a continue statement"),
-            )?;
+            self.consume(TokenType::Semicolon, "Expected ';' after continue.", None)?;
             let span = Span::new(start, self.previous().span.end);
             return Ok(Statement::Continue(span));
         }
@@ -452,7 +476,6 @@ impl<'a> Parser<'a> {
         // Handle while loops
         if self.check(TokenType::KeywordWhile) {
             let expr = self.parse_while_statement()?;
-            // Optional semicolon
             self.match_token(&[TokenType::Semicolon]);
             let span = expr.span();
             return Ok(Statement::Expression(ExpressionStatement {
@@ -464,7 +487,6 @@ impl<'a> Parser<'a> {
         // Handle for loops
         if self.is_contextual_keyword("for") {
             let expr = self.parse_for_statement()?;
-            // Optional semicolon
             self.match_token(&[TokenType::Semicolon]);
             let span = expr.span();
             return Ok(Statement::Expression(ExpressionStatement {
@@ -476,7 +498,6 @@ impl<'a> Parser<'a> {
         // Handle if expressions
         if self.check(TokenType::KeywordIf) {
             let expr = self.parse_if_expression()?;
-            // Optional semicolon
             self.match_token(&[TokenType::Semicolon]);
             let span = expr.span();
             return Ok(Statement::Expression(ExpressionStatement {
@@ -488,7 +509,6 @@ impl<'a> Parser<'a> {
         // Handle match expressions
         if self.check(TokenType::KeywordMatch) {
             let expr = self.parse_match_expression()?;
-            // Optional semicolon
             self.match_token(&[TokenType::Semicolon]);
             let span = expr.span();
             return Ok(Statement::Expression(ExpressionStatement {
@@ -514,25 +534,22 @@ impl<'a> Parser<'a> {
         if self.peek().token_type.is_identifier() {
             let next = self.peek_next().token_type.clone();
             if next == TokenType::Colon {
-                // This is a variable binding with type annotation
                 return self.parse_let_statement().map(Statement::Let);
             } else if next == TokenType::Assign {
-                // Could be variable binding without type or reassignment
-                // Try to parse as variable binding first
                 let saved = self.current;
                 if let Ok(let_stmt) = self.parse_let_statement() {
                     return Ok(Statement::Let(let_stmt));
                 }
-                // If that fails, it will error anyway
                 self.current = saved;
             }
         }
 
-        // Parse as expression statement (handles assignments via binary expressions)
         self.parse_expression_statement().map(Statement::Expression)
     }
 
     fn parse_let_statement(&mut self) -> Result<LetStatement, ParseError> {
+        let _ctx = self.context("let statement");
+
         let mutable = self.match_token(&[TokenType::KeywordMut]);
 
         let name = if let TokenType::Identifier(s) = self.peek().token_type.clone() {
@@ -544,7 +561,7 @@ impl<'a> Parser<'a> {
                 "Expected identifier for variable name in let statement, but found {:?}.",
                 token.token_type
             );
-            return Err(self.error(token.span, msg, Some("while parsing a let statement")));
+            return Err(self.error(token.span, msg, None));
         };
 
         let type_annotation = if self.match_token(&[TokenType::Colon]) {
@@ -556,7 +573,7 @@ impl<'a> Parser<'a> {
         self.consume(
             TokenType::Assign,
             "Expected '=' after identifier in let statement.",
-            Some("while parsing a let statement"),
+            None,
         )?;
 
         let value = self.parse_expression()?;
@@ -564,7 +581,7 @@ impl<'a> Parser<'a> {
         self.consume(
             TokenType::Semicolon,
             "Expected ';' after expression in let statement.",
-            Some("while parsing a let statement"),
+            None,
         )?;
 
         let span = Span::new(
@@ -590,6 +607,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_function_statement(&mut self) -> Result<LetStatement, ParseError> {
+        let _ctx = self.context("function declaration");
+
         let mutable = self.match_token(&[TokenType::KeywordMut]);
 
         let name_token = self.peek().clone();
@@ -601,16 +620,11 @@ impl<'a> Parser<'a> {
                 "Expected identifier for function name, but found {:?}.",
                 name_token.token_type
             );
-            return Err(self.error(
-                name_token.span,
-                msg,
-                Some("while parsing a function declaration"),
-            ));
+            return Err(self.error(name_token.span, msg, None));
         };
 
         let params = self.parse_parameters()?;
 
-        // Return type is optional
         let return_type = if self.match_token(&[TokenType::Colon]) {
             self.parse_type()?
         } else {
@@ -623,7 +637,7 @@ impl<'a> Parser<'a> {
         self.consume(
             TokenType::Assign,
             "Expected '=' after function signature.",
-            Some("while parsing a function declaration"),
+            None,
         )?;
 
         let body = self.parse_block()?;
@@ -640,14 +654,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type(&mut self) -> Result<Type, ParseError> {
+        let _ctx = self.context("type annotation");
+
         let primary = self.parse_type_primary()?;
 
-        // Check for function type arrow
         if self.match_token(&[TokenType::Arrow]) {
             let return_type = self.parse_type()?;
             let span = Span::new(primary.span().start, return_type.span().end);
-            // The primary should be converted to a parameter list
-            // For simplicity, we'll treat the primary as a single parameter type
             return Ok(Type::Function {
                 params: vec![Type::Primary(primary)],
                 return_type: Box::new(return_type),
@@ -667,7 +680,8 @@ impl<'a> Parser<'a> {
                 let name = name.clone();
                 self.advance();
                 if self.check(TokenType::OpenBracket) {
-                    self.advance(); // consume '['
+                    let _ctx = self.context("generic type");
+                    self.advance();
                     let mut args = Vec::new();
                     while !self.check(TokenType::CloseBracket) && !self.is_at_end() {
                         args.push(self.parse_type()?);
@@ -678,7 +692,7 @@ impl<'a> Parser<'a> {
                     self.consume(
                         TokenType::CloseBracket,
                         "Expected ']' after generic type arguments.",
-                        Some("while parsing a generic type"),
+                        None,
                     )?;
                     Ok(TypePrimary::Generic {
                         name,
@@ -690,12 +704,13 @@ impl<'a> Parser<'a> {
                 }
             }
             TokenType::OpenBracket => {
-                self.advance(); // consume '['
+                let _ctx = self.context("list type");
+                self.advance();
                 let inner_type = self.parse_type()?;
                 self.consume(
                     TokenType::CloseBracket,
                     "Expected ']' after list type.",
-                    Some("while parsing a list type"),
+                    None,
                 )?;
                 Ok(TypePrimary::List(
                     Box::new(inner_type),
@@ -708,17 +723,19 @@ impl<'a> Parser<'a> {
             }
             _ => {
                 let msg = format!("Expected type, but found {:?}.", token.token_type);
-                Err(self.error(span, msg, Some("while parsing a type annotation")))
+                Err(self.error(span, msg, None))
             }
         }
     }
 
     fn parse_record_type(&mut self) -> Result<RecordType, ParseError> {
+        let _ctx = self.context("record type");
+
         let start_span = self
             .consume(
                 TokenType::OpenBrace,
                 "Expected '{' to start a record type.",
-                Some("while parsing a record type"),
+                None,
             )?
             .span;
 
@@ -734,20 +751,19 @@ impl<'a> Parser<'a> {
                     "Expected identifier for field name in record type, but found {:?}.",
                     name_token.token_type
                 );
-                return Err(self.error(name_token.span, msg, Some("while parsing a record type")));
+                return Err(self.error(name_token.span, msg, None));
             };
 
             let name_span = self.previous().span;
 
-            // Check if this is a method (followed by '(') or field (followed by ':')
             if self.check(TokenType::OpenParen) {
-                // Parse as method declaration
+                let _ctx = self.context("record method");
                 let params = self.parse_parameters()?;
 
                 self.consume(
                     TokenType::Colon,
                     "Expected ':' after method parameters.",
-                    Some("while parsing a record type method"),
+                    None,
                 )?;
 
                 let return_type = self.parse_type()?;
@@ -755,25 +771,19 @@ impl<'a> Parser<'a> {
                 self.consume(
                     TokenType::Assign,
                     "Expected '=' after method signature.",
-                    Some("while parsing a record type method"),
+                    None,
                 )?;
 
                 let body = self.parse_block()?;
                 let method_span = Span::new(name_span.start, body.span.end);
 
-                // For now, we store methods as special field declarations
-                // You may want to extend RecordType to have a separate methods field
-                // For this fix, I'll create a workaround by adding it as a field with function type
                 fields.push(FieldDeclaration {
                     name: name.clone(),
                     ty: Type::Function {
                         params: params
                             .iter()
                             .map(|p| {
-                                Type::Primary(TypePrimary::Named(
-                                    format!("{}", p.name), // This is a simplification
-                                    p.span,
-                                ))
+                                Type::Primary(TypePrimary::Named(format!("{}", p.name), p.span))
                             })
                             .collect(),
                         return_type: Box::new(return_type),
@@ -782,11 +792,10 @@ impl<'a> Parser<'a> {
                     span: method_span,
                 });
             } else {
-                // Parse as field declaration
                 self.consume(
                     TokenType::Colon,
                     "Expected ':' after field name in record type.",
-                    Some("while parsing a record type"),
+                    None,
                 )?;
 
                 let type_ = self.parse_type()?;
@@ -800,7 +809,6 @@ impl<'a> Parser<'a> {
             }
 
             if !self.match_token(&[TokenType::Comma]) {
-                // Allow optional trailing comma or semicolon for methods
                 self.match_token(&[TokenType::Semicolon]);
                 if !self.check(TokenType::CloseBrace) {
                     break;
@@ -812,7 +820,7 @@ impl<'a> Parser<'a> {
             .consume(
                 TokenType::CloseBrace,
                 "Expected '}' to end a record type.",
-                Some("while parsing a record type"),
+                None,
             )?
             .span;
 
@@ -822,12 +830,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expression_statement(&mut self) -> Result<ExpressionStatement, ParseError> {
+        let _ctx = self.context("expression statement");
+
         let expr = self.parse_expression()?;
-        self.consume(
-            TokenType::Semicolon,
-            "Expected ';' after expression.",
-            Some("while parsing an expression statement"),
-        )?;
+        self.consume(TokenType::Semicolon, "Expected ';' after expression.", None)?;
         let span = Span::new(expr.span().start, self.previous().span.end);
         Ok(ExpressionStatement {
             expression: expr,
@@ -836,6 +842,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expression(&mut self) -> Result<Expression, ParseError> {
+        let _ctx = self.context("expression");
+
         // Check for lambda expression
         if self.check(TokenType::OpenParen) {
             if self.peek_next().token_type == TokenType::CloseParen {
@@ -874,7 +882,7 @@ impl<'a> Parser<'a> {
             let right = self.parse_assignment_expression()?;
             let span = Span::new(expr.span().start, right.span().end);
             let operator = match op_token.token_type {
-                TokenType::Assign => BinaryOperator::AddAssign, // Placeholder - needs proper Assign variant
+                TokenType::Assign => BinaryOperator::AddAssign,
                 TokenType::PlusEqual => BinaryOperator::AddAssign,
                 TokenType::MinusEqual => BinaryOperator::SubtractAssign,
                 TokenType::StarEqual => BinaryOperator::MultiplyAssign,
@@ -1047,6 +1055,7 @@ impl<'a> Parser<'a> {
             let operator_token = self.previous().clone();
             let operator = match operator_token.token_type {
                 TokenType::Dot => {
+                    let _ctx = self.context("field access");
                     let name_token = self.peek().clone();
                     let name = if let TokenType::Identifier(s) = name_token.token_type.clone() {
                         self.advance();
@@ -1056,16 +1065,13 @@ impl<'a> Parser<'a> {
                             "Expected identifier after '.', but found {:?}.",
                             name_token.token_type
                         );
-                        return Err(self.error(
-                            name_token.span,
-                            msg,
-                            Some("while parsing a field access expression"),
-                        ));
+                        return Err(self.error(name_token.span, msg, None));
                     };
                     let span = Span::new(operator_token.span.start, self.previous().span.end);
                     PostfixOperator::FieldAccess { name, span }
                 }
                 TokenType::DoubleColon => {
+                    let _ctx = self.context("type path");
                     let name_token = self.peek().clone();
                     let name = if let TokenType::Identifier(s) = name_token.token_type.clone() {
                         self.advance();
@@ -1075,16 +1081,13 @@ impl<'a> Parser<'a> {
                             "Expected identifier after '::', but found {:?}.",
                             name_token.token_type
                         );
-                        return Err(self.error(
-                            name_token.span,
-                            msg,
-                            Some("while parsing a type path expression"),
-                        ));
+                        return Err(self.error(name_token.span, msg, None));
                     };
                     let span = Span::new(operator_token.span.start, self.previous().span.end);
                     PostfixOperator::TypePath { name, span }
                 }
                 TokenType::OpenParen => {
+                    let _ctx = self.context("function call");
                     let mut args = Vec::new();
                     while !self.check(TokenType::CloseParen) && !self.is_at_end() {
                         args.push(self.parse_expression()?);
@@ -1092,21 +1095,14 @@ impl<'a> Parser<'a> {
                             break;
                         }
                     }
-                    self.consume(
-                        TokenType::CloseParen,
-                        "Expected ')' after arguments.",
-                        Some("while parsing a function call"),
-                    )?;
+                    self.consume(TokenType::CloseParen, "Expected ')' after arguments.", None)?;
                     let span = Span::new(operator_token.span.start, self.previous().span.end);
                     PostfixOperator::Call { args, span }
                 }
                 TokenType::OpenBracket => {
+                    let _ctx = self.context("list index");
                     let index = self.parse_expression()?;
-                    self.consume(
-                        TokenType::CloseBracket,
-                        "Expected ']' after index.",
-                        Some("while parsing a list indexing expression"),
-                    )?;
+                    self.consume(TokenType::CloseBracket, "Expected ']' after index.", None)?;
                     let span = Span::new(operator_token.span.start, self.previous().span.end);
                     PostfixOperator::ListAccess {
                         index: Box::new(index),
@@ -1184,12 +1180,13 @@ impl<'a> Parser<'a> {
                 Ok(Expression::Primary(PrimaryExpression::This(span)))
             }
             TokenType::OpenParen => {
+                let _ctx = self.context("parenthesized expression");
                 self.advance();
                 let expr = self.parse_expression()?;
                 self.consume(
                     TokenType::CloseParen,
                     "Expected ')' after expression.",
-                    Some("while parsing a parenthesized expression"),
+                    None,
                 )?;
                 let end_span = self.previous().span;
                 let full_span = Span::new(span.start, end_span.end);
@@ -1209,14 +1206,14 @@ impl<'a> Parser<'a> {
             TokenType::OpenBracket => self.parse_list_literal(),
             _ => {
                 let msg = format!("Expected expression, but found {:?}.", token.token_type);
-                Err(self.error(span, msg, Some("while parsing an expression")))
+                Err(self.error(span, msg, None))
             }
         }
     }
 
     fn parse_brace_expression(&mut self) -> Result<Expression, ParseError> {
         let saved_pos = self.current;
-        self.advance(); // consume '{'
+        self.advance();
 
         if self.check(TokenType::CloseBrace) {
             self.current = saved_pos;
@@ -1239,11 +1236,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_list_literal(&mut self) -> Result<Expression, ParseError> {
+        let _ctx = self.context("list literal");
+
         let start_span = self
             .consume(
                 TokenType::OpenBracket,
                 "Expected '[' to start list literal.",
-                Some("while parsing a list literal"),
+                None,
             )?
             .span;
 
@@ -1260,7 +1259,7 @@ impl<'a> Parser<'a> {
             .consume(
                 TokenType::CloseBracket,
                 "Expected ']' to end list literal.",
-                Some("while parsing a list literal"),
+                None,
             )?
             .span;
 
@@ -1273,26 +1272,20 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_if_expression(&mut self) -> Result<Expression, ParseError> {
+        let _ctx = self.context("if expression");
+
         let start_span = self
-            .consume(
-                TokenType::KeywordIf,
-                "Expected 'if' keyword.",
-                Some("while parsing an if expression"),
-            )?
+            .consume(TokenType::KeywordIf, "Expected 'if' keyword.", None)?
             .span;
 
-        self.consume(
-            TokenType::OpenParen,
-            "Expected '(' after 'if'.",
-            Some("while parsing an if expression"),
-        )?;
+        self.consume(TokenType::OpenParen, "Expected '(' after 'if'.", None)?;
 
         let condition = self.parse_expression()?;
 
         self.consume(
             TokenType::CloseParen,
             "Expected ')' after if condition.",
-            Some("while parsing an if expression"),
+            None,
         )?;
 
         let then_branch = self.parse_block()?;
@@ -1323,50 +1316,38 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_match_expression(&mut self) -> Result<Expression, ParseError> {
+        let _ctx = self.context("match expression");
+
         let start_span = self
-            .consume(
-                TokenType::KeywordMatch,
-                "Expected 'match' keyword.",
-                Some("while parsing a match expression"),
-            )?
+            .consume(TokenType::KeywordMatch, "Expected 'match' keyword.", None)?
             .span;
 
-        self.consume(
-            TokenType::OpenParen,
-            "Expected '(' after 'match'.",
-            Some("while parsing a match expression"),
-        )?;
+        self.consume(TokenType::OpenParen, "Expected '(' after 'match'.", None)?;
 
         let value = self.parse_expression()?;
 
         self.consume(
             TokenType::CloseParen,
             "Expected ')' after match scrutinee.",
-            Some("while parsing a match expression"),
+            None,
         )?;
 
         self.consume(
             TokenType::OpenBrace,
             "Expected '{' to start match arms.",
-            Some("while parsing a match expression"),
+            None,
         )?;
 
         let mut arms = Vec::new();
 
         while !self.check(TokenType::CloseBrace) && !self.is_at_end() {
-            self.consume(
-                TokenType::Pipe,
-                "Expected '|' before match arm.",
-                Some("while parsing a match expression"),
-            )?;
+            let _ctx = self.context("match arm");
+
+            self.consume(TokenType::Pipe, "Expected '|' before match arm.", None)?;
 
             let pattern = self.parse_pattern()?;
 
-            self.consume(
-                TokenType::FatArrow,
-                "Expected '=>' after pattern.",
-                Some("while parsing a match arm"),
-            )?;
+            self.consume(TokenType::FatArrow, "Expected '=>' after pattern.", None)?;
 
             let body_expr = self.parse_expression()?;
             let body_span = body_expr.span();
@@ -1387,7 +1368,7 @@ impl<'a> Parser<'a> {
             .consume(
                 TokenType::CloseBrace,
                 "Expected '}' to end match expression.",
-                Some("while parsing a match expression"),
+                None,
             )?
             .span;
 
@@ -1401,21 +1382,20 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
+        let _ctx = self.context("pattern");
+
         let token = self.peek().clone();
 
-        // Check for wildcard using KeywordUnderscore
         if token.token_type == TokenType::KeywordUnderscore {
             self.advance();
             return Ok(Pattern::Wildcard(token.span));
         }
 
-        // Check for None keyword
         if token.token_type == TokenType::KeywordNone {
             self.advance();
             return Ok(Pattern::Identifier("None".to_string(), token.span));
         }
 
-        // Literal patterns
         match &token.token_type {
             TokenType::Integer(i) => {
                 self.advance();
@@ -1447,7 +1427,6 @@ impl<'a> Parser<'a> {
             TokenType::Identifier(name) => {
                 self.advance();
 
-                // Check for variant with payload: Some(x)
                 if self.check(TokenType::OpenParen) {
                     self.advance();
                     let mut patterns = Vec::new();
@@ -1457,11 +1436,7 @@ impl<'a> Parser<'a> {
                             break;
                         }
                     }
-                    self.consume(
-                        TokenType::CloseParen,
-                        "Expected ')' after pattern.",
-                        Some("while parsing a pattern"),
-                    )?;
+                    self.consume(TokenType::CloseParen, "Expected ')' after pattern.", None)?;
                     let end_span = self.previous().span;
                     let span = Span::new(token.span.start, end_span.end);
                     return Ok(Pattern::Variant {
@@ -1477,24 +1452,22 @@ impl<'a> Parser<'a> {
         }
 
         let msg = format!("Expected pattern, but found {:?}.", token.token_type);
-        Err(self.error(token.span, msg, Some("while parsing a pattern")))
+        Err(self.error(token.span, msg, None))
     }
 
     fn parse_while_statement(&mut self) -> Result<Expression, ParseError> {
-        let start_token = self.advance().clone(); // consume "while"
+        let _ctx = self.context("while loop");
 
-        self.consume(
-            TokenType::OpenParen,
-            "Expected '(' after 'while'.",
-            Some("while parsing a while loop"),
-        )?;
+        let start_token = self.advance().clone();
+
+        self.consume(TokenType::OpenParen, "Expected '(' after 'while'.", None)?;
 
         let condition = self.parse_expression()?;
 
         self.consume(
             TokenType::CloseParen,
             "Expected ')' after while condition.",
-            Some("while parsing a while loop"),
+            None,
         )?;
 
         let body = self.parse_block()?;
@@ -1508,18 +1481,19 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_for_statement(&mut self) -> Result<Expression, ParseError> {
-        let start_token = self.advance().clone(); // consume "for"
+        let _ctx = self.context("for loop");
+
+        let start_token = self.advance().clone();
 
         let pattern = self.parse_pattern()?;
 
-        // Consume "in" as contextual keyword
         if !self.is_contextual_keyword("in") {
             let token = self.peek().clone();
             let msg = format!(
                 "Expected 'in' after loop variable, but found {:?}.",
                 token.token_type
             );
-            return Err(self.error(token.span, msg, Some("while parsing a for loop")));
+            return Err(self.error(token.span, msg, None));
         }
         self.advance();
 
@@ -1536,11 +1510,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_record_literal(&mut self) -> Result<Expression, ParseError> {
+        let _ctx = self.context("record literal");
+
         let start_span = self
             .consume(
                 TokenType::OpenBrace,
                 "Expected '{' to start a record literal.",
-                Some("while parsing a record literal"),
+                None,
             )?
             .span;
 
@@ -1556,11 +1532,7 @@ impl<'a> Parser<'a> {
                     "Expected identifier for field name in record literal, but found {:?}.",
                     name_token.token_type
                 );
-                return Err(self.error(
-                    name_token.span,
-                    msg,
-                    Some("while parsing a record literal"),
-                ));
+                return Err(self.error(name_token.span, msg, None));
             };
 
             let name_span = self.previous().span;
@@ -1568,7 +1540,7 @@ impl<'a> Parser<'a> {
             self.consume(
                 TokenType::Colon,
                 "Expected ':' after field name in record literal.",
-                Some("while parsing a record literal"),
+                None,
             )?;
 
             let value = self.parse_expression()?;
@@ -1589,7 +1561,7 @@ impl<'a> Parser<'a> {
             .consume(
                 TokenType::CloseBrace,
                 "Expected '}' to end a record literal.",
-                Some("while parsing a record literal"),
+                None,
             )?
             .span;
 
@@ -1601,6 +1573,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_function_expression(&mut self) -> Result<Expression, ParseError> {
+        let _ctx = self.context("lambda expression");
+
         let params = self.parse_parameters()?;
         let return_type = if self.match_token(&[TokenType::Colon]) {
             self.parse_type()?
@@ -1614,7 +1588,7 @@ impl<'a> Parser<'a> {
         self.consume(
             TokenType::FatArrow,
             "Expected '=>' for lambda expression body.",
-            Some("while parsing a lambda expression"),
+            None,
         )?;
 
         let body = if self.check(TokenType::OpenBrace) {
@@ -1634,38 +1608,45 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_parameters(&mut self) -> Result<Vec<Parameter>, ParseError> {
+        let _ctx = self.context("parameter list");
+
         self.consume(
             TokenType::OpenParen,
             "Expected '(' to start a parameter list.",
-            Some("while parsing a parameter list"),
+            None,
         )?;
 
         let mut params = Vec::new();
 
         while !self.check(TokenType::CloseParen) && !self.is_at_end() {
             let name_token = self.peek().clone();
-            let name = if let TokenType::Identifier(s) = name_token.token_type.clone() {
-                self.advance();
-                s
-            } else {
-                let msg = format!(
-                    "Expected identifier in parameter list, but found {:?}.",
-                    name_token.token_type
-                );
-                return Err(self.error(
-                    name_token.span,
-                    msg,
-                    Some("while parsing a parameter list"),
-                ));
+            let name = match &name_token.token_type {
+                TokenType::Identifier(s) => {
+                    self.advance();
+                    s.clone()
+                }
+                TokenType::KeywordThis => {
+                    // Allow 'this' as a parameter name
+                    self.advance();
+                    "this".to_string()
+                }
+                _ => {
+                    let msg = format!(
+                        "Expected identifier in parameter list, but found {:?}.",
+                        name_token.token_type
+                    );
+                    return Err(self.error(name_token.span, msg, None));
+                }
             };
 
-            self.consume(
-                TokenType::Colon,
-                "Expected ':' after parameter name.",
-                Some("while parsing a parameter list"),
-            )?;
+            // Type annotation is optional
+            let type_ = if self.match_token(&[TokenType::Colon]) {
+                self.parse_type()?
+            } else {
+                // No type annotation - use a placeholder or inferred type
+                Type::Primary(TypePrimary::Named("inferred".to_string(), name_token.span))
+            };
 
-            let type_ = self.parse_type()?;
             let span = Span::new(name_token.span.start, type_.span().end);
 
             params.push(Parameter {
@@ -1682,26 +1663,23 @@ impl<'a> Parser<'a> {
         self.consume(
             TokenType::CloseParen,
             "Expected ')' after parameters.",
-            Some("while parsing a parameter list"),
+            None,
         )?;
 
         Ok(params)
     }
 
     fn parse_block(&mut self) -> Result<Block, ParseError> {
+        let _ctx = self.context("block");
+
         let start_span = self
-            .consume(
-                TokenType::OpenBrace,
-                "Expected '{' to start a block.",
-                Some("while parsing a block"),
-            )?
+            .consume(TokenType::OpenBrace, "Expected '{' to start a block.", None)?
             .span;
 
         let mut statements = Vec::new();
         let mut final_expression = None;
 
         while !self.check(TokenType::CloseBrace) && !self.is_at_end() {
-            // Check if this is a statement that needs special parsing
             let is_special_statement = self.peek().token_type == TokenType::KeywordMut
                 || self.check(TokenType::KeywordWhile)
                 || self.check(TokenType::KeywordReturn)
@@ -1721,10 +1699,8 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            // Parse expression and check for semicolon
             let expr = self.parse_expression()?;
 
-            // Check if this is a control flow expression that doesn't require semicolon
             let is_control_flow = matches!(
                 expr,
                 Expression::If(_)
@@ -1734,40 +1710,32 @@ impl<'a> Parser<'a> {
             );
 
             if self.match_token(&[TokenType::Semicolon]) {
-                // Expression statement with semicolon
                 let span = Span::new(expr.span().start, self.previous().span.end);
                 statements.push(Statement::Expression(ExpressionStatement {
                     expression: expr,
                     span,
                 }));
             } else if is_control_flow {
-                // Control flow expression without semicolon - treat as statement
                 let span = expr.span();
                 statements.push(Statement::Expression(ExpressionStatement {
                     expression: expr,
                     span,
                 }));
             } else if self.check(TokenType::CloseBrace) {
-                // Final expression without semicolon
                 final_expression = Some(Box::new(expr));
                 break;
             } else {
-                // Error: expected semicolon or close brace
                 let found = self.peek().clone();
                 return Err(self.error(
                     found.span,
                     format!("Expected ';' or '}}', but found {:?}", found.token_type),
-                    Some("while parsing a block"),
+                    None,
                 ));
             }
         }
 
         let end_span = self
-            .consume(
-                TokenType::CloseBrace,
-                "Expected '}' to end a block.",
-                Some("while parsing a block"),
-            )?
+            .consume(TokenType::CloseBrace, "Expected '}' to end a block.", None)?
             .span;
 
         let span = Span::new(start_span.start, end_span.end);
