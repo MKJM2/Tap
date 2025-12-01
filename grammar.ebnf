@@ -3,10 +3,13 @@
 <top_stmt_list> ::= (<top_stmt>)*
 
 <top_stmt> ::= <type_decl> ";"
-             | <binding_stmt>
+             | <fn_bind>
+             | <var_bind>
              | <expr_stmt>
 
 <expr_stmt> ::= <expr> ";"
+
+<opt_semi> ::= ";" | E
 
 <type_decl> ::= "type" <type_name> "=" <type_ctor>
 
@@ -19,7 +22,7 @@
 
 <binding_stmt> ::= <fn_bind> | <var_bind>
 
-<fn_bind> ::= <opt_mut> <identifier> <param_list> ":" <type> "=" <block>
+<fn_bind> ::= <opt_mut> <identifier> <param_list> ( ":" <type> )? "=" <block> <opt_semi>
 
 <var_bind> ::= <opt_mut> <identifier> ( ":" <type> )? "=" <expr> ";"
 
@@ -38,7 +41,14 @@
 
 <stmt_list> ::= (<stmt>)*
 
-<stmt> ::= <binding_stmt> | <return_stmt> | <break_stmt> | <continue_stmt> | <expr> ";"
+<stmt> ::= <binding_stmt>
+         | <return_stmt>
+         | <break_stmt>
+         | <continue_stmt>
+         | <control_flow_expr> <opt_semi>
+         | <expr> ";"
+
+<control_flow_expr> ::= <if_expr> | <while_expr> | <for_expr> | <match_expr>
 
 <return_stmt> ::= "return" <expr>? ";"
 
@@ -48,7 +58,7 @@
 
 <expr_opt> ::= <expr> | E
 
-<if_expr> ::= "if" "(" <expr> ")" <block> ( "else" <block> )?
+<if_expr> ::= "if" "(" <expr> ")" <block> ( "else" ( <if_expr> | <block> ) )?
 
 <while_expr> ::= "while" "(" <expr> ")" <block>
 
@@ -64,6 +74,7 @@
 <pattern> ::= "_"
             | <identifier>
             | <identifier> "(" <pattern_list>? ")"
+            | <literal>
 
 <pattern_list> ::= <pattern> ("," <pattern>)*
 
@@ -87,6 +98,7 @@
 
 <primary> ::= <literal>
             | <identifier>
+            | "this"
             | "(" <expr> ")"
             | <list_literal>
             | <record_literal>
@@ -111,7 +123,7 @@
 
 <generic_type> ::= <type_name> "[" <type_list> "]"
 
-<record_type> ::= "{" (<record_member> ("," <record_member>)*)? "}"
+<record_type> ::= "{" (<record_member> ("," <record_member>)* ","?)? "}"
 
 <record_member> ::= <field_decl> | <method_decl>
 
@@ -119,7 +131,7 @@
 
 <method_decl> ::= <identifier> <param_list> ":" <type> "=" <block>
 
-<bin_op> ::= "+" | "-" | "*" | "/"
+<bin_op> ::= "+" | "-" | "*" | "/" | "%"
            | "==" | "!="
            | "<" | "<=" | ">" | ">="
            | "&&" | "||"

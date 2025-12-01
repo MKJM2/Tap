@@ -43,6 +43,7 @@ pub enum TokenType {
     PercentEqual, // %=
 
     // Fat arrow for lambdas and match arms
+    Arrow,    // ->
     FatArrow, // =>
 
     // Double colon for type paths
@@ -67,6 +68,9 @@ pub enum TokenType {
     KeywordFalse,      // false
     KeywordNone,       // None
     KeywordThis,       // this
+    KeywordContinue,   // continue
+    KeywordBreak,      // break
+    KeywordReturn,     // return
     KeywordUnderscore, // _ (used in patterns)
 
     // End of File
@@ -283,6 +287,8 @@ impl<'a> Lexer<'a> {
                 self.advance();
                 if self.match_char('=') {
                     self.add_token(TokenType::MinusEqual);
+                } else if self.match_char('>') {
+                    self.add_token(TokenType::Arrow);
                 } else {
                     self.add_token(TokenType::Minus);
                 }
@@ -429,6 +435,9 @@ impl<'a> Lexer<'a> {
             "false" => TokenType::KeywordFalse,
             "None" => TokenType::KeywordNone,
             "this" => TokenType::KeywordThis,
+            "continue" => TokenType::KeywordContinue,
+            "break" => TokenType::KeywordBreak,
+            "return" => TokenType::KeywordReturn,
             "_" => TokenType::KeywordUnderscore, // Explicit keyword for '_' pattern
             _ => TokenType::Identifier(text.clone()),
         };

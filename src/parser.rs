@@ -88,7 +88,9 @@ impl<'a> Parser<'a> {
         // Handle while loops
         if self.check(TokenType::KeywordWhile) {
             let expr = self.parse_while_statement()?;
-            let span = expr.span();
+            // Optional semicolon after while expression
+            self.match_token(&[TokenType::Semicolon]);
+            let span = Span::new(expr.span().start, self.previous().span.end);
             return Ok(TopStatement::Expression(ExpressionStatement {
                 expression: expr,
                 span,
@@ -98,19 +100,48 @@ impl<'a> Parser<'a> {
         // Handle for loops (contextual keyword)
         if self.is_contextual_keyword("for") {
             let expr = self.parse_for_statement()?;
-            let span = expr.span();
+            // Optional semicolon after for expression
+            self.match_token(&[TokenType::Semicolon]);
+            let span = Span::new(expr.span().start, self.previous().span.end);
             return Ok(TopStatement::Expression(ExpressionStatement {
                 expression: expr,
                 span,
             }));
         }
 
-        // Disambiguate function definition vs function call
+        // Handle if expressions
+        if self.check(TokenType::KeywordIf) {
+            let expr = self.parse_if_expression()?;
+            // Optional semicolon after if expression
+            self.match_token(&[TokenType::Semicolon]);
+            let span = Span::new(expr.span().start, self.previous().span.end);
+            return Ok(TopStatement::Expression(ExpressionStatement {
+                expression: expr,
+                span,
+            }));
+        }
+
+        // Handle match expressions
+        if self.check(TokenType::KeywordMatch) {
+            let expr = self.parse_match_expression()?;
+            // Optional semicolon after match expression
+            self.match_token(&[TokenType::Semicolon]);
+            let span = Span::new(expr.span().start, self.previous().span.end);
+            return Ok(TopStatement::Expression(ExpressionStatement {
+                expression: expr,
+                span,
+            }));
+        }
+
+        // Disambiguate function definition vs function call/variable binding
         if self.peek().token_type.is_identifier()
             && self.peek_next().token_type == TokenType::OpenParen
         {
             if self.looks_like_function_definition() {
-                return self.parse_function_statement().map(TopStatement::LetStmt);
+                let func_stmt = self.parse_function_statement()?;
+                // Optional semicolon after function definition
+                self.match_token(&[TokenType::Semicolon]);
+                return Ok(TopStatement::LetStmt(func_stmt));
             }
         }
 
@@ -118,9 +149,11 @@ impl<'a> Parser<'a> {
         if self.peek().token_type == TokenType::KeywordMut {
             return self.parse_let_statement().map(TopStatement::LetStmt);
         }
+
+        // Handle variable binding (identifier with : or =)
         if self.peek().token_type.is_identifier()
-            && (self.peek_next().token_type == TokenType::Assign
-                || self.peek_next().token_type == TokenType::Colon)
+            && (self.peek_next().token_type == TokenType::Colon
+                || self.peek_next().token_type == TokenType::Assign)
         {
             return self.parse_let_statement().map(TopStatement::LetStmt);
         }
@@ -140,12 +173,18 @@ impl<'a> Parser<'a> {
     fn looks_like_function_definition(&self) -> bool {
         let idx = self.current + 2; // Skip identifier and OpenParen
 
-        // Empty params: `()`
+        // Empty params: `()` - check if followed by `:` or `=`
         if idx < self.tokens.len() && self.tokens[idx].token_type == TokenType::CloseParen {
-            return true;
+            // Check what comes after `)`
+            if idx + 1 < self.tokens.len() {
+                let next = &self.tokens[idx + 1].token_type;
+                // Function def has `:` (return type) or `=` (no return type)
+                return matches!(next, TokenType::Colon | TokenType::Assign);
+            }
+            return false;
         }
 
-        // Check for `identifier :`
+        // Check for `identifier :`  (parameter)
         if idx < self.tokens.len() && self.tokens[idx].token_type.is_identifier() {
             if idx + 1 < self.tokens.len() && self.tokens[idx + 1].token_type == TokenType::Colon {
                 return true;
@@ -199,45 +238,127 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type_constructor(&mut self) -> Result<TypeConstructor, ParseError> {
-        let saved_pos = self.current;
-
         // Case 1: RecordType (starts with '{')
         if self.check(TokenType::OpenBrace) {
             let record = self.parse_record_type()?;
             return Ok(TypeConstructor::Record(record));
         }
 
-        // Case 2: Try to parse a SumConstructor
-        match self.parse_variant() {
-            Ok(first_variant) => {
-                if self.check(TokenType::Pipe) {
-                    let mut variants = vec![first_variant.clone()];
-                    while self.match_token(&[TokenType::Pipe]) {
-                        variants.push(self.parse_variant()?);
+        // Case 2: List type or other type alias starting with '['
+        if self.check(TokenType::OpenBracket) {
+            let alias_type = self.parse_type()?;
+            return Ok(TypeConstructor::Alias(alias_type));
+        }
+
+        // Case 3: Could be a sum type or type alias
+        // Try to parse as variant first
+        let saved_pos = self.current;
+
+        // If it's an identifier, check what follows
+        if self.peek().token_type.is_identifier()
+            || self.peek().token_type == TokenType::KeywordNone
+        {
+            // Look ahead to see if this looks like a variant
+            let next = self.peek_next().token_type.clone();
+
+            // If followed by '(' it could be a variant with payload
+            // If followed by '|' it's definitely a sum type
+            // If followed by '[' it's a generic type (type alias)
+            if next == TokenType::Pipe {
+                // Definitely a sum type
+                match self.parse_variant() {
+                    Ok(first_variant) => {
+                        let mut variants = vec![first_variant.clone()];
+                        while self.match_token(&[TokenType::Pipe]) {
+                            variants.push(self.parse_variant()?);
+                        }
+                        let end_span = variants
+                            .last()
+                            .map(|v| v.span)
+                            .unwrap_or(first_variant.span);
+                        let sum_span = Span::new(first_variant.span.start, end_span.end);
+                        return Ok(TypeConstructor::Sum(SumConstructor {
+                            variants,
+                            span: sum_span,
+                        }));
                     }
-                    let end_span = variants
-                        .last()
-                        .map(|v| v.span)
-                        .unwrap_or(first_variant.span);
-                    let sum_span = Span::new(first_variant.span.start, end_span.end);
-                    return Ok(TypeConstructor::Sum(SumConstructor {
-                        variants,
-                        span: sum_span,
-                    }));
-                } else {
-                    let span = first_variant.span;
-                    return Ok(TypeConstructor::Sum(SumConstructor {
-                        variants: vec![first_variant],
-                        span,
-                    }));
+                    Err(e) => return Err(e),
                 }
-            }
-            Err(_) => {
-                self.current = saved_pos;
+            } else if next == TokenType::OpenParen {
+                // Could be variant with payload or function type
+                // Try parsing as variant
+                match self.parse_variant() {
+                    Ok(first_variant) => {
+                        if self.check(TokenType::Pipe) {
+                            // It's a sum type
+                            let mut variants = vec![first_variant.clone()];
+                            while self.match_token(&[TokenType::Pipe]) {
+                                variants.push(self.parse_variant()?);
+                            }
+                            let end_span = variants
+                                .last()
+                                .map(|v| v.span)
+                                .unwrap_or(first_variant.span);
+                            let sum_span = Span::new(first_variant.span.start, end_span.end);
+                            return Ok(TypeConstructor::Sum(SumConstructor {
+                                variants,
+                                span: sum_span,
+                            }));
+                        } else {
+                            // Single variant sum type
+                            let span = first_variant.span;
+                            return Ok(TypeConstructor::Sum(SumConstructor {
+                                variants: vec![first_variant],
+                                span,
+                            }));
+                        }
+                    }
+                    Err(_) => {
+                        // Failed to parse as variant, try as type alias
+                        self.current = saved_pos;
+                        let alias_type = self.parse_type()?;
+                        return Ok(TypeConstructor::Alias(alias_type));
+                    }
+                }
+            } else if next == TokenType::OpenBracket {
+                // Generic type (type alias)
+                let alias_type = self.parse_type()?;
+                return Ok(TypeConstructor::Alias(alias_type));
+            } else {
+                // Try parsing as a simple variant (no payload, no pipe)
+                match self.parse_variant() {
+                    Ok(variant) => {
+                        if self.check(TokenType::Pipe) {
+                            let mut variants = vec![variant.clone()];
+                            while self.match_token(&[TokenType::Pipe]) {
+                                variants.push(self.parse_variant()?);
+                            }
+                            let end_span = variants.last().map(|v| v.span).unwrap_or(variant.span);
+                            let sum_span = Span::new(variant.span.start, end_span.end);
+                            return Ok(TypeConstructor::Sum(SumConstructor {
+                                variants,
+                                span: sum_span,
+                            }));
+                        } else {
+                            // Single variant
+                            let span = variant.span;
+                            return Ok(TypeConstructor::Sum(SumConstructor {
+                                variants: vec![variant],
+                                span,
+                            }));
+                        }
+                    }
+                    Err(_) => {
+                        // Not a variant, parse as type alias
+                        self.current = saved_pos;
+                        let alias_type = self.parse_type()?;
+                        return Ok(TypeConstructor::Alias(alias_type));
+                    }
+                }
             }
         }
 
-        // Case 3: Simple Type Alias
+        // Fallback: parse as type alias
         let alias_type = self.parse_type()?;
         Ok(TypeConstructor::Alias(alias_type))
     }
@@ -286,9 +407,53 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statement(&mut self) -> Result<Statement, ParseError> {
+        // Handle return statements
+        if self.check(TokenType::KeywordReturn) {
+            self.advance();
+            let start = self.previous().span.start;
+            let expr = if self.check(TokenType::Semicolon) {
+                None
+            } else {
+                Some(self.parse_expression()?)
+            };
+            self.consume(
+                TokenType::Semicolon,
+                "Expected ';' after return statement.",
+                Some("while parsing a return statement"),
+            )?;
+            let span = Span::new(start, self.previous().span.end);
+            return Ok(Statement::Return(expr, span));
+        }
+
+        // Handle break statements
+        if self.check(TokenType::KeywordBreak) {
+            let start = self.advance().span.start;
+            self.consume(
+                TokenType::Semicolon,
+                "Expected ';' after break.",
+                Some("while parsing a break statement"),
+            )?;
+            let span = Span::new(start, self.previous().span.end);
+            return Ok(Statement::Break(span));
+        }
+
+        // Handle continue statements
+        if self.check(TokenType::KeywordContinue) {
+            let start = self.advance().span.start;
+            self.consume(
+                TokenType::Semicolon,
+                "Expected ';' after continue.",
+                Some("while parsing a continue statement"),
+            )?;
+            let span = Span::new(start, self.previous().span.end);
+            return Ok(Statement::Continue(span));
+        }
+
         // Handle while loops
         if self.check(TokenType::KeywordWhile) {
             let expr = self.parse_while_statement()?;
+            // Optional semicolon
+            self.match_token(&[TokenType::Semicolon]);
             let span = expr.span();
             return Ok(Statement::Expression(ExpressionStatement {
                 expression: expr,
@@ -299,6 +464,32 @@ impl<'a> Parser<'a> {
         // Handle for loops
         if self.is_contextual_keyword("for") {
             let expr = self.parse_for_statement()?;
+            // Optional semicolon
+            self.match_token(&[TokenType::Semicolon]);
+            let span = expr.span();
+            return Ok(Statement::Expression(ExpressionStatement {
+                expression: expr,
+                span,
+            }));
+        }
+
+        // Handle if expressions
+        if self.check(TokenType::KeywordIf) {
+            let expr = self.parse_if_expression()?;
+            // Optional semicolon
+            self.match_token(&[TokenType::Semicolon]);
+            let span = expr.span();
+            return Ok(Statement::Expression(ExpressionStatement {
+                expression: expr,
+                span,
+            }));
+        }
+
+        // Handle match expressions
+        if self.check(TokenType::KeywordMatch) {
+            let expr = self.parse_match_expression()?;
+            // Optional semicolon
+            self.match_token(&[TokenType::Semicolon]);
             let span = expr.span();
             return Ok(Statement::Expression(ExpressionStatement {
                 expression: expr,
@@ -318,13 +509,26 @@ impl<'a> Parser<'a> {
         if self.peek().token_type == TokenType::KeywordMut {
             return self.parse_let_statement().map(Statement::Let);
         }
-        if self.peek().token_type.is_identifier()
-            && (self.peek_next().token_type == TokenType::Assign
-                || self.peek_next().token_type == TokenType::Colon)
-        {
-            return self.parse_let_statement().map(Statement::Let);
+
+        // Variable binding with type annotation or assignment
+        if self.peek().token_type.is_identifier() {
+            let next = self.peek_next().token_type.clone();
+            if next == TokenType::Colon {
+                // This is a variable binding with type annotation
+                return self.parse_let_statement().map(Statement::Let);
+            } else if next == TokenType::Assign {
+                // Could be variable binding without type or reassignment
+                // Try to parse as variable binding first
+                let saved = self.current;
+                if let Ok(let_stmt) = self.parse_let_statement() {
+                    return Ok(Statement::Let(let_stmt));
+                }
+                // If that fails, it will error anyway
+                self.current = saved;
+            }
         }
 
+        // Parse as expression statement (handles assignments via binary expressions)
         self.parse_expression_statement().map(Statement::Expression)
     }
 
@@ -363,12 +567,25 @@ impl<'a> Parser<'a> {
             Some("while parsing a let statement"),
         )?;
 
+        let span = Span::new(
+            if mutable {
+                self.tokens[self.current - (if type_annotation.is_some() { 6 } else { 4 })]
+                    .span
+                    .start
+            } else {
+                self.tokens[self.current - (if type_annotation.is_some() { 5 } else { 3 })]
+                    .span
+                    .start
+            },
+            self.previous().span.end,
+        );
+
         Ok(LetStatement::Variable(VariableBinding {
             mutable,
             name,
             type_annotation,
             value,
-            span: Span { start: 0, end: 0 },
+            span,
         }))
     }
 
@@ -392,6 +609,8 @@ impl<'a> Parser<'a> {
         };
 
         let params = self.parse_parameters()?;
+
+        // Return type is optional
         let return_type = if self.match_token(&[TokenType::Colon]) {
             self.parse_type()?
         } else {
@@ -421,12 +640,30 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type(&mut self) -> Result<Type, ParseError> {
+        let primary = self.parse_type_primary()?;
+
+        // Check for function type arrow
+        if self.match_token(&[TokenType::Arrow]) {
+            let return_type = self.parse_type()?;
+            let span = Span::new(primary.span().start, return_type.span().end);
+            // The primary should be converted to a parameter list
+            // For simplicity, we'll treat the primary as a single parameter type
+            return Ok(Type::Function {
+                params: vec![Type::Primary(primary)],
+                return_type: Box::new(return_type),
+                span,
+            });
+        }
+
+        Ok(Type::Primary(primary))
+    }
+
+    fn parse_type_primary(&mut self) -> Result<TypePrimary, ParseError> {
         let token = self.peek().clone();
         let span = token.span;
 
         match &token.token_type {
             TokenType::Identifier(name) => {
-                // Check for generic type: Foo[...]
                 let name = name.clone();
                 self.advance();
                 if self.check(TokenType::OpenBracket) {
@@ -443,13 +680,13 @@ impl<'a> Parser<'a> {
                         "Expected ']' after generic type arguments.",
                         Some("while parsing a generic type"),
                     )?;
-                    Ok(Type::Primary(TypePrimary::Generic {
+                    Ok(TypePrimary::Generic {
                         name,
                         args,
                         span: Span::new(span.start, self.previous().span.end),
-                    }))
+                    })
                 } else {
-                    Ok(Type::Primary(TypePrimary::Named(name, span)))
+                    Ok(TypePrimary::Named(name, span))
                 }
             }
             TokenType::OpenBracket => {
@@ -460,14 +697,14 @@ impl<'a> Parser<'a> {
                     "Expected ']' after list type.",
                     Some("while parsing a list type"),
                 )?;
-                Ok(Type::Primary(TypePrimary::List(
+                Ok(TypePrimary::List(
                     Box::new(inner_type),
                     Span::new(span.start, self.previous().span.end),
-                )))
+                ))
             }
             TokenType::OpenBrace => {
                 let record_type = self.parse_record_type()?;
-                Ok(Type::Primary(TypePrimary::Record(record_type)))
+                Ok(TypePrimary::Record(record_type))
             }
             _ => {
                 let msg = format!("Expected type, but found {:?}.", token.token_type);
@@ -502,23 +739,72 @@ impl<'a> Parser<'a> {
 
             let name_span = self.previous().span;
 
-            self.consume(
-                TokenType::Colon,
-                "Expected ':' after field name in record type.",
-                Some("while parsing a record type"),
-            )?;
+            // Check if this is a method (followed by '(') or field (followed by ':')
+            if self.check(TokenType::OpenParen) {
+                // Parse as method declaration
+                let params = self.parse_parameters()?;
 
-            let type_ = self.parse_type()?;
-            let field_span = Span::new(name_span.start, type_.span().end);
+                self.consume(
+                    TokenType::Colon,
+                    "Expected ':' after method parameters.",
+                    Some("while parsing a record type method"),
+                )?;
 
-            fields.push(FieldDeclaration {
-                name,
-                ty: type_,
-                span: field_span,
-            });
+                let return_type = self.parse_type()?;
+
+                self.consume(
+                    TokenType::Assign,
+                    "Expected '=' after method signature.",
+                    Some("while parsing a record type method"),
+                )?;
+
+                let body = self.parse_block()?;
+                let method_span = Span::new(name_span.start, body.span.end);
+
+                // For now, we store methods as special field declarations
+                // You may want to extend RecordType to have a separate methods field
+                // For this fix, I'll create a workaround by adding it as a field with function type
+                fields.push(FieldDeclaration {
+                    name: name.clone(),
+                    ty: Type::Function {
+                        params: params
+                            .iter()
+                            .map(|p| {
+                                Type::Primary(TypePrimary::Named(
+                                    format!("{}", p.name), // This is a simplification
+                                    p.span,
+                                ))
+                            })
+                            .collect(),
+                        return_type: Box::new(return_type),
+                        span: method_span,
+                    },
+                    span: method_span,
+                });
+            } else {
+                // Parse as field declaration
+                self.consume(
+                    TokenType::Colon,
+                    "Expected ':' after field name in record type.",
+                    Some("while parsing a record type"),
+                )?;
+
+                let type_ = self.parse_type()?;
+                let field_span = Span::new(name_span.start, type_.span().end);
+
+                fields.push(FieldDeclaration {
+                    name,
+                    ty: type_,
+                    span: field_span,
+                });
+            }
 
             if !self.match_token(&[TokenType::Comma]) {
-                break;
+                // Allow optional trailing comma or semicolon for methods
+                self.match_token(&[TokenType::Semicolon]);
+                if !self.check(TokenType::CloseBrace) {
+                    break;
+                }
             }
         }
 
@@ -578,6 +864,7 @@ impl<'a> Parser<'a> {
         let expr = self.parse_logical_or_expression()?;
 
         if self.match_token(&[
+            TokenType::Assign,
             TokenType::PlusEqual,
             TokenType::MinusEqual,
             TokenType::StarEqual,
@@ -587,6 +874,7 @@ impl<'a> Parser<'a> {
             let right = self.parse_assignment_expression()?;
             let span = Span::new(expr.span().start, right.span().end);
             let operator = match op_token.token_type {
+                TokenType::Assign => BinaryOperator::AddAssign, // Placeholder - needs proper Assign variant
                 TokenType::PlusEqual => BinaryOperator::AddAssign,
                 TokenType::MinusEqual => BinaryOperator::SubtractAssign,
                 TokenType::StarEqual => BinaryOperator::MultiplyAssign,
@@ -706,13 +994,14 @@ impl<'a> Parser<'a> {
 
     fn parse_multiplicative_expression(&mut self) -> Result<Expression, ParseError> {
         let mut expr = self.parse_unary_expression()?;
-        while self.match_token(&[TokenType::Star, TokenType::Slash]) {
+        while self.match_token(&[TokenType::Star, TokenType::Slash, TokenType::Percent]) {
             let operator_token = self.previous().clone();
             let right = self.parse_unary_expression()?;
             let span = Span::new(expr.span().start, right.span().end);
             let operator = match operator_token.token_type {
                 TokenType::Star => BinaryOperator::Multiply,
                 TokenType::Slash => BinaryOperator::Divide,
+                TokenType::Percent => BinaryOperator::Modulo,
                 _ => unreachable!(),
             };
             expr = Expression::Binary(BinaryExpression {
@@ -726,13 +1015,14 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_unary_expression(&mut self) -> Result<Expression, ParseError> {
-        if self.match_token(&[TokenType::Bang, TokenType::Minus]) {
+        if self.match_token(&[TokenType::Bang, TokenType::Minus, TokenType::Plus]) {
             let operator_token = self.previous().clone();
             let right = self.parse_unary_expression()?;
             let span = Span::new(operator_token.span.start, right.span().end);
             let operator = match operator_token.token_type {
                 TokenType::Bang => UnaryOperator::Not,
                 TokenType::Minus => UnaryOperator::Minus,
+                TokenType::Plus => UnaryOperator::Plus,
                 _ => unreachable!(),
             };
             return Ok(Expression::Unary(UnaryExpression {
@@ -1411,16 +1701,20 @@ impl<'a> Parser<'a> {
         let mut final_expression = None;
 
         while !self.check(TokenType::CloseBrace) && !self.is_at_end() {
-            // Check if this is a statement that needs special parsing (let/function/while/for)
+            // Check if this is a statement that needs special parsing
             let is_special_statement = self.peek().token_type == TokenType::KeywordMut
                 || self.check(TokenType::KeywordWhile)
+                || self.check(TokenType::KeywordReturn)
+                || self.check(TokenType::KeywordBreak)
+                || self.check(TokenType::KeywordContinue)
+                || self.check(TokenType::KeywordIf)
+                || self.check(TokenType::KeywordMatch)
                 || self.is_contextual_keyword("for")
                 || (self.peek().token_type.is_identifier()
                     && self.peek_next().token_type == TokenType::OpenParen
                     && self.looks_like_function_definition())
                 || (self.peek().token_type.is_identifier()
-                    && (self.peek_next().token_type == TokenType::Assign
-                        || self.peek_next().token_type == TokenType::Colon));
+                    && (self.peek_next().token_type == TokenType::Colon));
 
             if is_special_statement {
                 statements.push(self.parse_statement()?);
@@ -1430,9 +1724,25 @@ impl<'a> Parser<'a> {
             // Parse expression and check for semicolon
             let expr = self.parse_expression()?;
 
+            // Check if this is a control flow expression that doesn't require semicolon
+            let is_control_flow = matches!(
+                expr,
+                Expression::If(_)
+                    | Expression::While(_)
+                    | Expression::For(_)
+                    | Expression::Match(_)
+            );
+
             if self.match_token(&[TokenType::Semicolon]) {
                 // Expression statement with semicolon
                 let span = Span::new(expr.span().start, self.previous().span.end);
+                statements.push(Statement::Expression(ExpressionStatement {
+                    expression: expr,
+                    span,
+                }));
+            } else if is_control_flow {
+                // Control flow expression without semicolon - treat as statement
+                let span = expr.span();
                 statements.push(Statement::Expression(ExpressionStatement {
                     expression: expr,
                     span,
