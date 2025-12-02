@@ -1531,6 +1531,24 @@ impl Interpreter {
                     )),
                 }
             }
+            Value::String(s) => {
+                let index_value = self.eval_expr(index_expr)?;
+                match index_value {
+                    Value::Integer(idx) => {
+                        if idx < 0 || idx as usize >= s.len() {
+                            return Err(RuntimeError::TypeError(format!(
+                                "Index {} out of bounds",
+                                idx
+                            )));
+                        }
+                        let ch = s.chars().nth(idx as usize).unwrap();
+                        Ok(Value::String(ch.to_string()))
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        "String index must be an integer".to_string(),
+                    )),
+                }
+            }
             _ => Err(RuntimeError::TypeError(
                 "Cannot index non-list value".to_string(),
             )),

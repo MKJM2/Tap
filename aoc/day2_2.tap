@@ -1,0 +1,106 @@
+get_file_content(): string = {
+    // `args` is a built-in injected into global env by interpreter runtime
+    file = open(args.get(0), "r");
+    content: string = file.read();
+    file.close();
+    content
+}
+
+type Range = {
+    start: int,
+    end: int
+};
+
+parse_range(range: string) : Range = {
+    parts = range.split("-");
+    if (parts.length() != 2) {
+        return None;
+    }
+    start = parts[0].parse_int();
+    end = parts[1].parse_int();
+    range = {start: start, end: end};
+    range
+}
+
+// Parse input into a list of Ranges
+get_ranges(content: string): [Range] = {
+    range_strs: [string] = content.split(",");
+    mut ranges: [Range] = [];
+
+    for range_str in range_strs {
+        range = parse_range(range_str);
+        ranges = ranges.push(range);
+    }
+    ranges
+}
+
+
+is_id_invalid(id: int): bool = {
+    id_str = id.to_string();
+    n: int = id_str.length();
+
+    // Iterate through all possible lengths (L) of the repeating pattern.
+    // The pattern must repeat at least twice, so L must be a divisor of n,
+    // and L must be less than n (i.e., L <= n / 2).
+    mut L = 1;
+    while (L <= n / 2) {
+        // If L is a divisor of n, then id_str *could* be formed by repeating a pattern of length L.
+        if (n % L == 0) {
+            pattern = id_str.substring(0, L); // Extract the potential repeating pattern
+
+            // Reconstruct the string by repeating the pattern n/L times
+            mut reconstructed_str = "";
+            mut k = 0;
+            while (k < n / L) { // k represents the number of repetitions
+                reconstructed_str = reconstructed_str + pattern;
+                k += 1;
+            }
+
+            // If the reconstructed string matches the original id_str, then it's an invalid ID
+            if (reconstructed_str == id_str) {
+                return true; // Found a repeating pattern, no need to check further L's
+            }
+        }
+        L += 1;
+    }
+    return false; // No repeating pattern found that meets the criteria
+}
+
+
+find_invalid(r: Range) : [int] = {
+    mut res: [int] = [];
+
+    // Iterate through each ID in the given range
+    mut current_id = r.start;
+    while (current_id <= r.end) {
+        if (is_id_invalid(current_id)) {
+            res = res.push(current_id);
+        }
+        current_id += 1;
+    }
+    res
+}
+
+solve(): int = {
+    content = get_file_content();
+    ranges: [Range] = get_ranges(content);
+
+    mut res : [int] = [];
+    for range in ranges {
+        invalid = find_invalid(range);
+        res += invalid;
+        print("Found invalid IDs in range ");
+        print(range);
+        print(invalid.length());
+        print(" ");
+    }
+    print(res);
+
+    mut sum = 0;
+    for id in res {
+        sum += id;
+    }
+    print(sum)
+}
+
+solve();
