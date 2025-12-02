@@ -1,0 +1,62 @@
+// Example input file: "L68\nL30\nR48\nL5\nR60\nL55\nL1\nL99\nR14\nL82"
+get_file_content(): string = {
+    // `args` is a built-in injected into global env by interpreter runtime
+    file = open(args.get(0), "r");
+    content: string = file.read();
+    file.close();
+    content
+}
+
+// Parse a line like "R60" or "L30" into a turn value
+// R becomes positive, L becomes negative
+parse_turn(line: string): int = {
+    direction = line.char_at(0);
+    len = line.length();
+    value_str = line.substring(1, len - 1);
+    value = value_str.parse_int();
+
+    if (direction == "L") {
+        -value
+    } else {
+        value
+    }
+}
+
+// Parse all lines into a list of turns
+get_turns(content: string): [int] = {
+    lines = content.split("\n");
+    mut turns: [int] = [];
+
+    for line in lines {
+        trimmed = line.trim();
+        if (trimmed.length() > 0) {
+            turn = parse_turn(trimmed);
+            turns = turns.push(turn);
+        }
+    }
+
+    turns
+}
+
+solve(): int = {
+    content = get_file_content();
+    turns = get_turns(content);
+
+    mut res = 0;
+    mut dial = 50;
+
+    for turn in turns {
+        dial = dial + turn;
+        dial = dial % 100;
+
+        // Check if dial reached zero
+        if (dial == 0) {
+            res = res + 1;
+        }
+    }
+
+    // Return the count of times dial reached zero
+    print(res);
+}
+
+solve();

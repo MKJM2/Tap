@@ -1267,4 +1267,82 @@ mod interpreter_tests {
         "#;
         assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Integer(3))));
     }
+
+    #[test]
+    fn test_file_processing_line_by_line() {
+        let source = r#"
+            // Create a file with numbers
+            file = open("/tmp/test_numbers.txt", "w");
+            file.write_line("10");
+            file.write_line("20");
+            file.write_line("30");
+            file.close();
+
+            // Read and sum the numbers
+            file2 = open("/tmp/test_numbers.txt", "r");
+            lines = file2.read_lines();
+            file2.close();
+
+            mut sum = 0;
+            for line in lines {
+                num = line.trim().parse_int();
+                sum = sum + num;
+            };
+
+            sum;
+        "#;
+
+        // Cleanup before test
+        std::fs::remove_file("/tmp/test_numbers.txt").ok();
+
+        let result = interpret_source_with_ast(source).result;
+
+        // Cleanup after test
+        std::fs::remove_file("/tmp/test_numbers.txt").ok();
+
+        assert_eq!(result, Ok(Some(Value::Integer(60))));
+    }
+    #[test]
+    fn test_file_error_invalid_mode() {
+        let source = r#"
+            file = open("test.txt", "invalid");
+        "#;
+
+        let result = interpret_source_with_ast(source).result;
+        assert!(matches!(result, Err(RuntimeError::TypeError(_))));
+    }
+
+    #[test]
+    fn test_args_out_of_bounds() {
+        let source = r#"
+            args.get(100);
+        "#;
+
+        let mut reporter = Reporter::new();
+        let tokens = Lexer::new(source, &mut reporter).tokenize().unwrap();
+        let mut parser = Parser::new(&tokens, &mut reporter);
+        let program = parser.parse_program().unwrap();
+
+        let mut interpreter = Interpreter::new_with_args(vec!["program".to_string()]);
+        let result = interpreter.interpret(&program);
+
+        assert_eq!(result, Ok(Some(Value::Unit)));
+    }
+
+    #[test]
+    fn test_args_missing_option() {
+        let source = r#"
+            args.get_option("--missing");
+        "#;
+
+        let mut reporter = Reporter::new();
+        let tokens = Lexer::new(source, &mut reporter).tokenize().unwrap();
+        let mut parser = Parser::new(&tokens, &mut reporter);
+        let program = parser.parse_program().unwrap();
+
+        let mut interpreter = Interpreter::new_with_args(vec!["program".to_string()]);
+        let result = interpreter.interpret(&program);
+
+        assert_eq!(result, Ok(Some(Value::Unit)));
+    }
 }

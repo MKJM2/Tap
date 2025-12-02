@@ -1,5 +1,3 @@
-
-
 use crate::ast::Span;
 
 /// Represents the severity of a diagnostic message.
@@ -60,16 +58,39 @@ impl Reporter {
         self.has_errors
     }
 
+    pub fn format_diagnostics(&self, source: &str) -> String {
+        let mut output = String::new();
+        for diagnostic in &self.diagnostics {
+            let (line, col) = byte_to_line_col(source, diagnostic.span.start);
+            let kind_str = match diagnostic.kind {
+                DiagnosticKind::Error => "Error",
+                DiagnosticKind::Warning => "Warning",
+            };
+
+            output.push_str(&format!("{} at line {}, column {}", kind_str, line, col));
+            if let Some(context) = &diagnostic.context {
+                output.push_str(&format!(" ({})", context));
+            }
+            output.push_str(&format!(": {}\n", diagnostic.message));
+
+            // Show the line with the error
+            if let Some(line_text) = get_line(source, line) {
+                output.push_str(&format!("  | {}\n", line_text));
+                output.push_str(&format!("  | {}^\n", " ".repeat(col.saturating_sub(1))));
+            }
+        }
+        output
+    }
+
     /// Reports all collected diagnostics to stderr.
     /// In a real compiler, this would involve pretty-printing with source context.
     pub fn emit_diagnostics(&self, _source: &str) {
         for diagnostic in &self.diagnostics {
             // For now, simple printing. This will be expanded later for pretty-printing.
-            eprintln!("{:?} at {:?} (Context: {:?}): {}", 
-                      diagnostic.kind, 
-                      diagnostic.span, 
-                      diagnostic.context, 
-                      diagnostic.message);
+            eprintln!(
+                "{:?} at {:?} (Context: {:?}): {}",
+                diagnostic.kind, diagnostic.span, diagnostic.context, diagnostic.message
+            );
         }
     }
 }

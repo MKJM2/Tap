@@ -118,12 +118,14 @@ pub struct Interpreter {
 
 impl Interpreter {
     pub fn new() -> Self {
-        Interpreter {
+        let mut interp = Interpreter {
             env: Environment::new(),
             files: vec![None, None, None], // 0,1,2 for stdin, stdout, stderr
             next_fd: 3,
             args: Args::empty(),
-        }
+        };
+        interp.inject_builtins();
+        interp
     }
 
     pub fn new_with_args(args: Vec<String>) -> Self {
@@ -131,6 +133,26 @@ impl Interpreter {
         interp.args = Args::parse(args);
         interp.inject_globals();
         interp
+    }
+
+    fn inject_builtins(&mut self) {
+        // Inject built-in functions as special function values
+        let builtins = vec!["print", "eprint", "open", "input"];
+        for name in builtins {
+            self.env.define(
+                name.to_string(),
+                Value::Function {
+                    name: Some(name.to_string()),
+                    params: vec![],
+                    body: Block {
+                        statements: vec![],
+                        final_expression: None,
+                        span: Span { start: 0, end: 0 },
+                    },
+                    env: Environment::new(),
+                },
+            );
+        }
     }
 
     fn inject_globals(&mut self) {
@@ -1226,6 +1248,124 @@ impl Interpreter {
             // Convert boolean to string
             (Value::Boolean(b), "to_string") => Ok(Value::String(b.to_string())),
 
+            // ==================== FILE METHODS ====================
+            (Value::File { id, closed, .. }, "read") => {
+                if *closed {
+                    return Err(RuntimeError::TypeError(
+                        "Cannot read from closed file".into(),
+                    ));
+                }
+                self.file_read(*id)
+            }
+
+            (Value::File { id, closed, .. }, "read_lines") => {
+                if *closed {
+                    return Err(RuntimeError::TypeError(
+                        "Cannot read from closed file".into(),
+                    ));
+                }
+                self.file_read_lines(*id)
+            }
+
+            (Value::File { id, closed, .. }, "write") => {
+                if *closed {
+                    return Err(RuntimeError::TypeError(
+                        "Cannot write to closed file".into(),
+                    ));
+                }
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError("write expects 1 argument".into()));
+                }
+                let text = self.eval_expr(&args[0])?;
+                self.file_write(*id, &self.value_to_display_string(&text))
+            }
+
+            (Value::File { id, closed, .. }, "write_line") => {
+                if *closed {
+                    return Err(RuntimeError::TypeError(
+                        "Cannot write to closed file".into(),
+                    ));
+                }
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        "write_line expects 1 argument".into(),
+                    ));
+                }
+                let text = self.eval_expr(&args[0])?;
+                self.file_write(*id, &format!("{}\n", self.value_to_display_string(&text)))
+            }
+
+            (Value::File { id, .. }, "close") => self.file_close(*id),
+
+            (Value::File { closed, .. }, "is_closed") => Ok(Value::Boolean(*closed)),
+
+            // ==================== ARGS METHODS ====================
+            (Value::Args(args_obj), "program") => Ok(Value::String(args_obj.program.clone())),
+
+            (Value::Args(args_obj), "values") => Ok(Value::List(
+                args_obj
+                    .values
+                    .iter()
+                    .map(|s| Value::String(s.clone()))
+                    .collect(),
+            )),
+
+            (Value::Args(args_obj), "length") => Ok(Value::Integer(args_obj.values.len() as i64)),
+
+            (Value::Args(args_obj), "get") => {
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        "args.get expects 1 argument".into(),
+                    ));
+                }
+                let idx = self.eval_expr(&args[0])?;
+                if let Value::Integer(i) = idx {
+                    if i < 0 || i as usize >= args_obj.values.len() {
+                        return Ok(Value::Unit);
+                    }
+                    Ok(Value::String(args_obj.values[i as usize].clone()))
+                } else {
+                    Err(RuntimeError::TypeError(
+                        "args.get index must be integer".into(),
+                    ))
+                }
+            }
+
+            (Value::Args(args_obj), "has") => {
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        "args.has expects 1 argument".into(),
+                    ));
+                }
+                let flag = self.eval_expr(&args[0])?;
+                if let Value::String(f) = flag {
+                    Ok(Value::Boolean(args_obj.flags.contains_key(&f)))
+                } else {
+                    Err(RuntimeError::TypeError(
+                        "args.has argument must be string".into(),
+                    ))
+                }
+            }
+
+            (Value::Args(args_obj), "get_option") => {
+                if args.len() != 1 {
+                    return Err(RuntimeError::TypeError(
+                        "args.get_option expects 1 argument".into(),
+                    ));
+                }
+                let key = self.eval_expr(&args[0])?;
+                if let Value::String(k) = key {
+                    match args_obj.options.get(&k) {
+                        Some(v) => Ok(Value::String(v.clone())),
+                        None => Ok(Value::Unit),
+                    }
+                } else {
+                    Err(RuntimeError::TypeError(
+                        "args.get_option argument must be string".into(),
+                    ))
+                }
+            }
+
             // ==================== FALLBACK ====================
             _ => Err(RuntimeError::TypeError(format!(
                 "Unknown method '{}' for type {:?}",
@@ -1310,6 +1450,32 @@ impl Interpreter {
                 });
             }
             Value::Boolean(_) if field_name == "to_string" => {
+                return Ok(Value::BuiltInMethod {
+                    receiver: Box::new(value),
+                    method: field_name.to_string(),
+                });
+            }
+            Value::File {
+                id: _,
+                path: _,
+                mode: _,
+                closed: _,
+            } if matches!(
+                field_name,
+                "read" | "read_lines" | "write" | "write_line" | "close" | "is_closed"
+            ) =>
+            {
+                return Ok(Value::BuiltInMethod {
+                    receiver: Box::new(value),
+                    method: field_name.to_string(),
+                });
+            }
+            Value::Args(_)
+                if matches!(
+                    field_name,
+                    "program" | "values" | "length" | "get" | "has" | "get_option"
+                ) =>
+            {
                 return Ok(Value::BuiltInMethod {
                     receiver: Box::new(value),
                     method: field_name.to_string(),
@@ -1611,7 +1777,7 @@ impl Interpreter {
                 )
             }
             Value::File { path, .. } => format!("<file '{}'>", path),
-            Value::Args { .. } => "<args>".to_string(),
+            Value::Args { .. } => format!("CLI arguments: {:?}", self.args).to_string(),
             Value::Variant { name, data } => {
                 if let Some(d) = data {
                     format!("{}({})", name, self.value_to_display_string(d))

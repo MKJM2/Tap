@@ -1,0 +1,7 @@
+.help
+clear
+.help
+1 + 2 ;
+"Siema" + "Byku";
+jeżeli ("życie daje ci cytryny") { "sprzedaj je i kup wódkę" } lub { "kup wódkę" }
+.exit

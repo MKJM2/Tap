@@ -1,0 +1,84 @@
+// Przykładowy plik wejściowy: "L68\nL30\nR48\nL5\nR60\nL55\nL1\nL99\nR14\nL82"
+wczytaj_zawartość_pliku(): string = {
+    // `args` to wbudowana zmienna dodana do globalnego środowiska przez interpreter
+    plik_danych = open(args.get(0), "r");
+    zawartość: string = plik_danych.read();
+    plik_danych.close();
+    zwróć zawartość;
+}
+
+// Konwertuje linię taką jak "R60" lub "L30" na wartość obrotu (liczba całkowita).
+// 'R' oznacza wartość dodatnią, 'L' - ujemną.
+przetwarzaj_obrót(linia: string): int = {
+    długość_linii = linia.length();
+    jeżeli (długość_linii == 0) {
+        zwróć 0;
+    }
+    kierunek = linia.char_at(0);
+    // Wartość liczbową pobieramy od drugiego znaku do końca linii
+    wartość_tekstowa = linia.substring(1, długość_linii);
+    wartość_obrotu: int = wartość_tekstowa.parse_int();
+
+    jeżeli (kierunek == "L") {
+        -wartość_obrotu
+    } albo {
+        +wartość_obrotu
+    }
+}
+
+// Przetwarza wszystkie linie na listę wartości obrotów.
+wczytaj_listę_obrotów(zawartosc: string): [int] = {
+    linie = zawartosc.split("\n");
+    zmienna lista_obrotów: [int] = [];
+
+    dla pojedyncza_linia in linie {
+        linia_przycięta = pojedyncza_linia.trim();
+        jeżeli (linia_przycięta.length() > 0) {
+            obrót = przetwarzaj_obrót(linia_przycięta);
+            lista_obrotów = lista_obrotów.push(obrót);
+        }
+    }
+    lista_obrotów
+}
+
+rozwiąż_problem() = {
+    zawartosc_pliku = wczytaj_zawartość_pliku();
+    obroty = wczytaj_listę_obrotów(zawartosc_pliku);
+
+    zmienna całkowity_wynik = 0;
+    zmienna aktualna_tarcza = 50; // Początkowa pozycja tarczy [0-99]
+
+    dla pojedynczy_obrót in obroty {
+        zmienna pokonana_odległość = pojedynczy_obrót;
+        zmienna znak_kierunku = 1; // 1 dla prawo, -1 dla lewo
+        jeżeli (pojedynczy_obrót < 0) {
+            pokonana_odległość = -pojedynczy_obrót;
+            znak_kierunku = -1;
+        }
+
+        // Dodaj wszystkie przejścia przez punkt "zero" wynikające z pełnych obrotów (360 stopnii)
+        całkowity_wynik += pokonana_odległość / 100;
+
+        // Sprawdź, czy nastąpiło dodatkowe przejście z powodu pozostałej części obrotu
+        reszta_obrotu = pokonana_odległość % 100;
+        jeżeli (pojedynczy_obrót > 0) { // Obrót w prawo
+            jeżeli (aktualna_tarcza + reszta_obrotu >= 100) {
+                całkowity_wynik += 1;
+            }
+        } albo { // Obrót w lewo
+            // Sprawdzamy, czy tarcza faktycznie przekroczy zero
+            jeżeli (aktualna_tarcza > 0 && aktualna_tarcza - reszta_obrotu <= 0) {
+                całkowity_wynik += 1;
+            }
+        }
+
+        // Zaktualizuj pozycję tarczy do jej końcowego położenia
+        // (możemy pominąć pełne obroty i użyć tylko reszty, zachowując zakres [0, 99])
+        aktualna_tarcza = aktualna_tarcza + (reszta_obrotu * znak_kierunku);
+        aktualna_tarcza = (aktualna_tarcza % 100 + 100) % 100; // Normalizacja do zakresu [0, 99]
+    }
+
+    print(całkowity_wynik);
+}
+
+rozwiąż_problem();

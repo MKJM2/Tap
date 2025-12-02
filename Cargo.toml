@@ -3,9 +3,13 @@ name = "tap"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "tap"
+path = "src/main.rs"
+
 [dependencies]
 atty = "0.2.14"
-color-eyre = "0.6.5"
-eyre = "0.6.12"
-rustyline = "10.0"
+clap = { version="4.5.53", features = ["derive"] }
+nu-ansi-term = "0.50.3"
+reedline = "0.44.0"
 thiserror = "2.0.17"

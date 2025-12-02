@@ -367,25 +367,63 @@ impl<'a> Lexer<'a> {
     }
 
     fn string(&mut self) {
-        self.advance(); // Consume the opening '"'.
-        while self.peek() != '"' && !self.is_at_end() {
-            if self.peek() == '\n' {
-                self.line += 1;
+        // consume opening quote
+        self.advance();
+
+        let mut value = String::new();
+
+        while !self.is_at_end() {
+            let c = self.advance();
+
+            match c {
+                '"' => {
+                    // closing quote terminates string
+                    self.add_token(TokenType::String(value));
+                    return;
+                }
+
+                '\\' => {
+                    // escaped character
+                    if self.is_at_end() {
+                        self.error(self.current - 1, "Unterminated string escape.");
+                        return;
+                    }
+
+                    let esc = self.advance();
+                    let decoded = match esc {
+                        'n' => '\n',
+                        'r' => '\r',
+                        't' => '\t',
+                        '\\' => '\\',
+                        '"' => '"',
+                        '0' => '\0',
+                        _ => {
+                            self.error(
+                                self.current - 1,
+                                &format!("Invalid escape sequence: \\{}", esc),
+                            );
+                            continue;
+                        }
+                    };
+                    value.push(decoded);
+                }
+
+                '\n' => {
+                    // raw newline inside string: treat as error
+                    self.error(
+                        self.current - 1,
+                        "Unterminated string (newline inside literal).",
+                    );
+                    self.line += 1;
+                    return;
+                }
+
+                ch => value.push(ch),
             }
-            self.advance();
         }
 
-        if self.is_at_end() {
-            self.error(self.start, "Unterminated string.");
-            return;
-        }
-
-        self.advance(); // Consume the closing '"'.
-
-        let value: String = self.chars[self.start + 1..self.current - 1]
-            .iter()
-            .collect();
-        self.add_token(TokenType::String(value));
+        // EOF reached before closing quote
+        self.error(self.start, "Unterminated string.");
     }
 
     fn number(&mut self) {
@@ -425,20 +463,20 @@ impl<'a> Lexer<'a> {
 
         let text: String = self.chars[self.start..self.current].iter().collect();
         let token_type = match text.as_str() {
-            "type" => TokenType::KeywordType,
-            "mut" => TokenType::KeywordMut,
-            "if" => TokenType::KeywordIf,
-            "else" => TokenType::KeywordElse,
-            "while" => TokenType::KeywordWhile,
-            "for" => TokenType::KeywordFor,
-            "match" => TokenType::KeywordMatch,
-            "true" => TokenType::KeywordTrue,
-            "false" => TokenType::KeywordFalse,
-            "None" => TokenType::KeywordNone,
-            "this" => TokenType::KeywordThis,
-            "continue" => TokenType::KeywordContinue,
-            "break" => TokenType::KeywordBreak,
-            "return" => TokenType::KeywordReturn,
+            "type" | "typ" => TokenType::KeywordType,
+            "mut" | "zmienna" => TokenType::KeywordMut,
+            "if" | "jeżeli" | "jeśli" => TokenType::KeywordIf,
+            "else" | "albo" | "lub" | "w_innym_razie" => TokenType::KeywordElse,
+            "while" | "dopóki" => TokenType::KeywordWhile,
+            "for" | "dla" => TokenType::KeywordFor,
+            "match" | "dopasuj" => TokenType::KeywordMatch,
+            "true" | "prawda" => TokenType::KeywordTrue,
+            "false" | "fałsz" => TokenType::KeywordFalse,
+            "None" | "Nic" => TokenType::KeywordNone,
+            "this" | "ten" | "ta" | "to" => TokenType::KeywordThis,
+            "continue" | "kontynuuj" | "dalej" => TokenType::KeywordContinue,
+            "break" | "przerwij" | "koniec" => TokenType::KeywordBreak,
+            "return" | "zwróć" => TokenType::KeywordReturn,
             "_" => TokenType::KeywordUnderscore, // Explicit keyword for '_' pattern
             _ => TokenType::Identifier(text.clone()),
         };
