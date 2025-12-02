@@ -21,11 +21,78 @@ pub enum Value {
         receiver: Box<Value>,
         method: String,
     },
+    File {
+        id: usize,      // index into interpreter's file table
+        path: String,   // path to file
+        mode: FileMode, // R/W/Append
+        closed: bool,
+    },
+    Args(Args),
     Variant {
         name: String,
         data: Option<Box<Value>>,
     },
     Unit,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FileMode {
+    Read,
+    Write,
+    Append,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Args {
+    program: String,                  // argv[0]
+    values: Vec<String>,              // positional args
+    flags: HashMap<String, bool>,     // --flag, -f
+    options: HashMap<String, String>, // --key=value, --key value
+}
+
+impl Args {
+    pub fn empty() -> Self {
+        Args {
+            program: String::new(),
+            values: Vec::new(),
+            flags: HashMap::new(),
+            options: HashMap::new(),
+        }
+    }
+    pub fn parse(args: Vec<String>) -> Self {
+        let mut parsed = Args::empty();
+        if args.is_empty() {
+            return parsed;
+        }
+        parsed.program = args[0].clone();
+        let mut i = 1;
+        while i < args.len() {
+            let arg = &args[i];
+            if arg.starts_with("--") {
+                if let Some(eq_pos) = arg.find('=') {
+                    let key = arg[2..eq_pos].to_string();
+                    let value = arg[eq_pos + 1..].to_string();
+                    parsed.options.insert(key, value);
+                } else {
+                    let key = arg[2..].to_string();
+                    if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                        parsed.options.insert(key, args[i + 1].clone());
+                        i += 1;
+                    } else {
+                        parsed.flags.insert(key, true);
+                    }
+                }
+            } else if arg.starts_with('-') && arg.len() > 1 {
+                for ch in arg[1..].chars() {
+                    parsed.flags.insert(ch.to_string(), true);
+                }
+            } else {
+                parsed.values.push(arg.clone());
+            }
+            i += 1;
+        }
+        parsed
+    }
 }
 
 #[derive(Error, Debug, Clone, PartialEq)]
@@ -44,13 +111,31 @@ pub enum RuntimeError {
 
 pub struct Interpreter {
     pub env: Environment,
+    files: Vec<Option<std::fs::File>>, // fd table
+    next_fd: usize,                    // next available fd
+    args: Args,                        // parsed cmdline
 }
 
 impl Interpreter {
     pub fn new() -> Self {
         Interpreter {
             env: Environment::new(),
+            files: vec![None, None, None], // 0,1,2 for stdin, stdout, stderr
+            next_fd: 3,
+            args: Args::empty(),
         }
+    }
+
+    pub fn new_with_args(args: Vec<String>) -> Self {
+        let mut interp = Self::new();
+        interp.args = Args::parse(args);
+        interp.inject_globals();
+        interp
+    }
+
+    fn inject_globals(&mut self) {
+        self.env
+            .define("args".to_string(), Value::Args(self.args.clone()));
     }
 
     pub fn interpret(&mut self, program: &Program) -> Result<Option<Value>, RuntimeError> {
@@ -430,6 +515,64 @@ impl Interpreter {
         func_value: Value,
         args: &[Expression],
     ) -> Result<Value, RuntimeError> {
+        // Check if it's an identifier being called as a function (for built-ins)
+        if let Value::Function {
+            name: Some(func_name),
+            ..
+        } = &func_value
+        {
+            // Check for built-in functions
+            match func_name.as_str() {
+                "print" => {
+                    if args.len() != 1 {
+                        return Err(RuntimeError::TypeError("print expects 1 argument".into()));
+                    }
+                    let value = self.eval_expr(&args[0])?;
+                    println!("{}", self.value_to_display_string(&value));
+                    return Ok(Value::Unit);
+                }
+                "eprint" => {
+                    if args.len() != 1 {
+                        return Err(RuntimeError::TypeError("eprint expects 1 argument".into()));
+                    }
+                    let value = self.eval_expr(&args[0])?;
+                    eprintln!("{}", self.value_to_display_string(&value));
+                    return Ok(Value::Unit);
+                }
+                "open" => {
+                    if args.len() != 2 {
+                        return Err(RuntimeError::TypeError("open expects 2 arguments".into()));
+                    }
+                    let path = self.eval_expr(&args[0])?;
+                    let mode = self.eval_expr(&args[1])?;
+                    if let (Value::String(p), Value::String(m)) = (path, mode) {
+                        return self.open_file(p, m);
+                    }
+                    return Err(RuntimeError::TypeError(
+                        "open arguments must be strings".into(),
+                    ));
+                }
+                "input" => {
+                    use std::io::{self, Write};
+                    if args.len() > 1 {
+                        return Err(RuntimeError::TypeError(
+                            "input expects 0 or 1 argument".into(),
+                        ));
+                    }
+                    if args.len() == 1 {
+                        let prompt = self.eval_expr(&args[0])?;
+                        print!("{}", self.value_to_display_string(&prompt));
+                        io::stdout().flush().ok();
+                    }
+                    let mut line = String::new();
+                    io::stdin()
+                        .read_line(&mut line)
+                        .map_err(|_| RuntimeError::TypeError("Failed to read from stdin".into()))?;
+                    return Ok(Value::String(line.trim_end_matches('\n').to_string()));
+                }
+                _ => {} // Not a built-in, continue with regular function call
+            }
+        }
         match func_value {
             Value::BuiltInMethod { receiver, method } => {
                 self.eval_builtin_method(*receiver, &method, args)
@@ -1436,5 +1579,157 @@ impl Interpreter {
             LiteralValue::Boolean(b) => Ok(Value::Boolean(*b)),
             LiteralValue::None => Ok(Value::Unit),
         }
+    }
+
+    /*=================== HELPERS & BUILT-INS ============================ */
+
+    fn value_to_display_string(&self, value: &Value) -> String {
+        match value {
+            Value::Integer(i) => i.to_string(),
+            Value::Float(f) => f.to_string(),
+            Value::String(s) => s.clone(),
+            Value::Boolean(b) => b.to_string(),
+            Value::Unit => "()".to_string(),
+            Value::List(items) => {
+                let items_str: Vec<String> = items
+                    .iter()
+                    .map(|v| self.value_to_display_string(v))
+                    .collect();
+                format!("[{}]", items_str.join(", "))
+            }
+            Value::Record(fields) => {
+                let fields_str: Vec<String> = fields
+                    .iter()
+                    .map(|(k, v)| format!("{}: {}", k, self.value_to_display_string(v)))
+                    .collect();
+                format!("{{{}}}", fields_str.join(", "))
+            }
+            Value::Function { name, .. } => {
+                format!(
+                    "<function {}>",
+                    name.as_ref().unwrap_or(&"anonymous".to_string())
+                )
+            }
+            Value::File { path, .. } => format!("<file '{}'>", path),
+            Value::Args { .. } => "<args>".to_string(),
+            Value::Variant { name, data } => {
+                if let Some(d) = data {
+                    format!("{}({})", name, self.value_to_display_string(d))
+                } else {
+                    name.clone()
+                }
+            }
+            _ => format!("{:?}", value),
+        }
+    }
+
+    fn open_file(&mut self, path: String, mode_str: String) -> Result<Value, RuntimeError> {
+        use std::fs::OpenOptions;
+
+        let mode = match mode_str.as_str() {
+            "r" => FileMode::Read,
+            "w" => FileMode::Write,
+            "a" => FileMode::Append,
+            _ => {
+                return Err(RuntimeError::TypeError(format!(
+                    "Invalid file mode: {}",
+                    mode_str
+                )));
+            }
+        };
+
+        let file = match mode {
+            FileMode::Read => OpenOptions::new().read(true).open(&path),
+            FileMode::Write => OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&path),
+            FileMode::Append => OpenOptions::new()
+                .write(true)
+                .create(true)
+                .append(true)
+                .open(&path),
+        };
+
+        match file {
+            Ok(f) => {
+                let id = self.next_fd;
+                self.files.push(Some(f));
+                self.next_fd += 1;
+                Ok(Value::File {
+                    id,
+                    path: path.clone(),
+                    mode,
+                    closed: false,
+                })
+            }
+            Err(e) => Err(RuntimeError::TypeError(format!(
+                "Failed to open file '{}': {}",
+                path, e
+            ))),
+        }
+    }
+
+    fn file_read(&mut self, id: usize) -> Result<Value, RuntimeError> {
+        use std::io::Read;
+
+        if id >= self.files.len() || self.files[id].is_none() {
+            return Err(RuntimeError::TypeError("Invalid file descriptor".into()));
+        }
+
+        let mut content = String::new();
+        if let Some(file) = &mut self.files[id] {
+            file.read_to_string(&mut content)
+                .map_err(|e| RuntimeError::TypeError(format!("Failed to read file: {}", e)))?;
+        }
+
+        Ok(Value::String(content))
+    }
+
+    fn file_read_lines(&mut self, id: usize) -> Result<Value, RuntimeError> {
+        use std::io::{BufRead, BufReader};
+
+        if id >= self.files.len() || self.files[id].is_none() {
+            return Err(RuntimeError::TypeError("Invalid file descriptor".into()));
+        }
+
+        let lines: Vec<Value> = if let Some(file) = &self.files[id] {
+            BufReader::new(file)
+                .lines()
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| RuntimeError::TypeError(format!("Failed to read lines: {}", e)))?
+                .into_iter()
+                .map(Value::String)
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        Ok(Value::List(lines))
+    }
+
+    fn file_write(&mut self, id: usize, text: &str) -> Result<Value, RuntimeError> {
+        use std::io::Write;
+
+        if id >= self.files.len() || self.files[id].is_none() {
+            return Err(RuntimeError::TypeError("Invalid file descriptor".into()));
+        }
+
+        if let Some(file) = &mut self.files[id] {
+            file.write_all(text.as_bytes())
+                .map_err(|e| RuntimeError::TypeError(format!("Failed to write to file: {}", e)))?;
+        }
+
+        Ok(Value::Unit)
+    }
+
+    fn file_close(&mut self, id: usize) -> Result<Value, RuntimeError> {
+        if id >= self.files.len() {
+            return Err(RuntimeError::TypeError("Invalid file descriptor".into()));
+        }
+
+        self.files[id] = None;
+        Ok(Value::Unit)
     }
 }
