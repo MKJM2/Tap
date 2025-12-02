@@ -1176,4 +1176,95 @@ mod interpreter_tests {
         "#;
         assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Integer(3))));
     }
+
+    #[test]
+    fn test_snippet_aoc_2025_day1_1() {
+        let source = r#"
+            solve(): int = {
+                // Hardcoded example turns (until we implement I/O)
+                turns = [-68, -30, 48, -5, 60, -55, -1, -99, 14, -82];
+
+                mut res = 0;
+                mut dial = 50;
+
+                for turn in turns {
+                    dial = dial + turn;
+                    dial = dial % 100;
+
+                    if (dial == 0) {
+                        res = res + 1;
+                    }
+                }
+
+                res
+            };
+
+            solve();
+        "#;
+        assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Integer(3))));
+    }
+
+    #[test]
+    fn test_snippet_aoc_2025_day1_1_input_parsing() {
+        let source = r#"
+            get_file_content(): string = {
+                "L68\nL30\nR48\nL5\nR60\nL55\nL1\nL99\nR14\nL82"
+            }
+
+            // Parse a line like "R60" or "L30" into a turn value
+            // R becomes positive, L becomes negative
+            parse_turn(line: string): int = {
+                direction = line.char_at(0);
+                len = line.length();
+                value_str = line.substring(1, len - 1);
+                value = value_str.parse_int();
+
+                if (direction == "L") {
+                    -value
+                } else {
+                    value
+                }
+            }
+
+            // Parse all lines into a list of turns
+            get_turns(content: string): [int] = {
+                lines = content.split("\n");
+                mut turns: [int] = [];
+
+                for line in lines {
+                    trimmed = line.trim();
+                    if (trimmed.length() > 0) {
+                        turn = parse_turn(trimmed);
+                        turns = turns.push(turn);
+                    }
+                }
+
+                turns
+            }
+
+            solve(): int = {
+                content = get_file_content();
+                turns = get_turns(content);
+
+                mut res = 0;
+                mut dial = 50;
+
+                for turn in turns {
+                    dial = dial + turn;
+                    dial = dial % 100;
+
+                    // Check if dial reached zero
+                    if (dial == 0) {
+                        res = res + 1;
+                    }
+                }
+
+                // Return the count of times dial reached zero
+                res
+            }
+
+            solve();
+        "#;
+        assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Integer(3))));
+    }
 }

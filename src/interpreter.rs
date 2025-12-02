@@ -1095,25 +1095,78 @@ impl Interpreter {
     fn eval_field_access(&mut self, value: Value, field_name: &str) -> Result<Value, RuntimeError> {
         // Check for built-in methods
         match &value {
-            Value::List(_) if matches!(field_name, "length" | "push" | "append") => {
+            Value::List(_)
+                if matches!(
+                    field_name,
+                    "length"
+                        | "push"
+                        | "append"
+                        | "pop"
+                        | "remove"
+                        | "insert"
+                        | "reverse"
+                        | "sort"
+                        | "contains"
+                        | "index_of"
+                        | "slice"
+                        | "join"
+                        | "map"
+                        | "filter"
+                        | "first"
+                        | "last"
+                        | "is_empty"
+                ) =>
+            {
                 return Ok(Value::BuiltInMethod {
                     receiver: Box::new(value),
                     method: field_name.to_string(),
                 });
             }
-            Value::String(_) if matches!(field_name, "length" | "substring") => {
+            Value::String(_)
+                if matches!(
+                    field_name,
+                    "length"
+                        | "substring"
+                        | "split"
+                        | "parse_int"
+                        | "parse_float"
+                        | "trim"
+                        | "trim_start"
+                        | "trim_end"
+                        | "contains"
+                        | "starts_with"
+                        | "ends_with"
+                        | "replace"
+                        | "to_lower"
+                        | "to_upper"
+                        | "char_at"
+                        | "chars"
+                        | "index_of"
+                ) =>
+            {
                 return Ok(Value::BuiltInMethod {
                     receiver: Box::new(value),
                     method: field_name.to_string(),
                 });
             }
-            Value::Integer(_) if matches!(field_name, "to_float" | "to_string") => {
+            Value::Integer(_) if matches!(field_name, "to_float" | "to_string" | "abs" | "pow") => {
                 return Ok(Value::BuiltInMethod {
                     receiver: Box::new(value),
                     method: field_name.to_string(),
                 });
             }
-            Value::Float(_) if field_name == "to_string" => {
+            Value::Float(_)
+                if matches!(
+                    field_name,
+                    "to_string" | "to_int" | "abs" | "floor" | "ceil" | "round" | "sqrt" | "pow"
+                ) =>
+            {
+                return Ok(Value::BuiltInMethod {
+                    receiver: Box::new(value),
+                    method: field_name.to_string(),
+                });
+            }
+            Value::Boolean(_) if field_name == "to_string" => {
                 return Ok(Value::BuiltInMethod {
                     receiver: Box::new(value),
                     method: field_name.to_string(),
