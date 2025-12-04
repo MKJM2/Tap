@@ -5,3 +5,10 @@ clear
 "Siema" + "Byku";
 jeżeli ("życie daje ci cytryny") { "sprzedaj je i kup wódkę" } lub { "kup wódkę" }
 .exit
+hello there
+3 + 5;
+3 + 4;
+scores = [1, 2, 3];
+scores;
+scores.push(4);
+scores;

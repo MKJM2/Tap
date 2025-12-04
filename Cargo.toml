@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 atty = "0.2.14"
+chrono = "0.4.42"
 clap = { version="4.5.53", features = ["derive"] }
 nu-ansi-term = "0.50.3"
 reedline = "0.44.0"

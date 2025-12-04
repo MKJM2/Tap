@@ -76,11 +76,11 @@ mod interpreter_tests {
             if output.result != expected_val {
                 eprintln!("\n--- Test Assertion Failed ---");
                 eprintln!("Source:\n```tap\n{}\n```", output.source);
-                // if let Some(ast) = output.ast {
-                //     eprintln!("AST:\n{:#?}", ast);
-                // } else {
-                //     eprintln!("AST: Not available due to parsing error.");
-                // }
+                if let Some(ast) = output.ast {
+                    eprintln!("AST:\n{:#?}", ast);
+                } else {
+                    eprintln!("AST: Not available due to parsing error.");
+                }
                 eprintln!("Expected: {:?}", expected_val); // Use the explicitly typed variable here
                 eprintln!("Actual: {:?}", output.result);
                 eprintln!("--- End Test Assertion Failed ---");
@@ -1368,5 +1368,103 @@ mod interpreter_tests {
         let result = interpreter.interpret(&program);
 
         assert_eq!(result, Ok(Some(Value::Unit)));
+    }
+
+    #[test]
+    fn test_hashmap_has_key() {
+        let source = r#"
+            mut scores = Map();
+            scores.insert("Alice", 100);
+            scores.insert("Bob", 85);
+
+            res: int = if (scores.has("Alice")) {
+                1
+            } else {
+                0
+            };
+            res
+        "#;
+
+        assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Integer(1))));
+    }
+
+    #[test]
+    fn test_hashmap_get() {
+        let source = r#"
+            mut scores = Map();
+            scores.insert("Alice", 100);
+            scores.insert("Bob", 85);
+
+            scores.get("Alice");
+        "#;
+
+        assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Integer(100))));
+    }
+
+    #[test]
+    fn test_hashmap_entries() {
+        let source = r#"
+                mut scores = Map();
+                scores.insert("Alice", 100);
+                scores.insert("Bob", 85);
+
+                res: int = 0;
+                for entry in scores.entries() {
+                    if (entry.key == "Alice") {
+                        res += entry.value;
+                    }
+                    if (entry.key == "Bob") {
+                        res += entry.value;
+                    }
+                    if (entry.key == "Mallory") {
+                        res += 12345;
+                    }
+                }
+                res;
+            "#;
+
+        assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Integer(185))));
+    }
+
+    #[test]
+    fn test_hashmap_keys() {
+        let source = r#"
+                mut scores = Map();
+                scores.insert("Alice", 100);
+                scores.insert("Bob", 85);
+
+                res: int = 0;
+                keys: [string] = scores.keys();
+                keys.length() == 2 && keys.contains("Alice") && keys.contains("Bob");
+            "#;
+
+        assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Boolean(true))));
+    }
+
+    #[test]
+    fn test_hashmap_values() {
+        let source = r#"
+                    mut scores = Map();
+                    scores.insert("Alice", 100);
+                    scores.insert("Bob", 85);
+
+                    res: int = 0;
+                    values: [int] = scores.values();
+                    values.contains(100) && values.contains(85);
+                "#;
+
+        assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Boolean(true))));
+    }
+
+    #[test]
+    fn test_hashmap_method_chaining() {
+        let source = r#"
+            mut scores = Map();
+            scores.insert("Alice", 100).insert("Bob", 85);
+
+            scores.get("Bob") + scores.get("Alice");
+        "#;
+
+        assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Integer(185))));
     }
 }

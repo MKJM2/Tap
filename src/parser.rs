@@ -124,7 +124,7 @@ impl<'a> Parser<'a> {
         // Handle while loops
         if self.check(TokenType::KeywordWhile) {
             let expr = self.parse_while_statement()?;
-            self.match_token(&[TokenType::Semicolon]);
+            self.maybe_consume(&[TokenType::Semicolon]);
             let span = Span::new(expr.span().start, self.previous().span.end);
             return Ok(TopStatement::Expression(ExpressionStatement {
                 expression: expr,
@@ -135,7 +135,7 @@ impl<'a> Parser<'a> {
         // Handle for loops (contextual keyword)
         if self.check(TokenType::KeywordFor) {
             let expr = self.parse_for_statement()?;
-            self.match_token(&[TokenType::Semicolon]);
+            self.maybe_consume(&[TokenType::Semicolon]);
             let span = Span::new(expr.span().start, self.previous().span.end);
             return Ok(TopStatement::Expression(ExpressionStatement {
                 expression: expr,
@@ -146,7 +146,7 @@ impl<'a> Parser<'a> {
         // Handle if expressions
         if self.check(TokenType::KeywordIf) {
             let expr = self.parse_if_expression()?;
-            self.match_token(&[TokenType::Semicolon]);
+            self.maybe_consume(&[TokenType::Semicolon]);
             let span = Span::new(expr.span().start, self.previous().span.end);
             return Ok(TopStatement::Expression(ExpressionStatement {
                 expression: expr,
@@ -157,7 +157,7 @@ impl<'a> Parser<'a> {
         // Handle match expressions
         if self.check(TokenType::KeywordMatch) {
             let expr = self.parse_match_expression()?;
-            self.match_token(&[TokenType::Semicolon]);
+            self.maybe_consume(&[TokenType::Semicolon]);
             let span = Span::new(expr.span().start, self.previous().span.end);
             return Ok(TopStatement::Expression(ExpressionStatement {
                 expression: expr,
@@ -171,7 +171,7 @@ impl<'a> Parser<'a> {
         {
             if self.looks_like_function_definition() {
                 let func_stmt = self.parse_function_statement()?;
-                self.match_token(&[TokenType::Semicolon]);
+                self.maybe_consume(&[TokenType::Semicolon]);
                 return Ok(TopStatement::LetStmt(func_stmt));
             }
         }
@@ -191,14 +191,6 @@ impl<'a> Parser<'a> {
 
         self.parse_expression_statement()
             .map(TopStatement::Expression)
-    }
-
-    fn is_contextual_keyword(&self, keyword: &str) -> bool {
-        if let TokenType::Identifier(name) = &self.tokens[self.current].token_type {
-            name == keyword
-        } else {
-            false
-        }
     }
 
     fn looks_like_function_definition(&self) -> bool {
@@ -270,11 +262,8 @@ impl<'a> Parser<'a> {
         self.consume(TokenType::Assign, "Expected '=' after type name.", None)?;
 
         let constructor = self.parse_type_constructor()?;
-
-        self.match_token(&[TokenType::Semicolon]); // optional after type declaration
-
+        self.maybe_consume(&[TokenType::Semicolon]); // optional after type declaration
         let span = Span::new(name_token.span.start, self.previous().span.end);
-
         Ok(TypeDeclaration {
             name,
             constructor,
@@ -309,7 +298,7 @@ impl<'a> Parser<'a> {
                 match self.parse_variant() {
                     Ok(first_variant) => {
                         let mut variants = vec![first_variant.clone()];
-                        while self.match_token(&[TokenType::Pipe]) {
+                        while self.maybe_consume(&[TokenType::Pipe]) {
                             variants.push(self.parse_variant()?);
                         }
                         let end_span = variants
@@ -329,7 +318,7 @@ impl<'a> Parser<'a> {
                     Ok(first_variant) => {
                         if self.check(TokenType::Pipe) {
                             let mut variants = vec![first_variant.clone()];
-                            while self.match_token(&[TokenType::Pipe]) {
+                            while self.maybe_consume(&[TokenType::Pipe]) {
                                 variants.push(self.parse_variant()?);
                             }
                             let end_span = variants
@@ -363,7 +352,7 @@ impl<'a> Parser<'a> {
                     Ok(variant) => {
                         if self.check(TokenType::Pipe) {
                             let mut variants = vec![variant.clone()];
-                            while self.match_token(&[TokenType::Pipe]) {
+                            while self.maybe_consume(&[TokenType::Pipe]) {
                                 variants.push(self.parse_variant()?);
                             }
                             let end_span = variants.last().map(|v| v.span).unwrap_or(variant.span);
@@ -548,7 +537,7 @@ impl<'a> Parser<'a> {
     fn parse_let_statement(&mut self) -> Result<LetStatement, ParseError> {
         let _ctx = self.context("let statement");
 
-        let mutable = self.match_token(&[TokenType::KeywordMut]);
+        let mutable = self.maybe_consume(&[TokenType::KeywordMut]);
 
         let name = if let TokenType::Identifier(s) = self.peek().token_type.clone() {
             self.advance();
@@ -562,7 +551,7 @@ impl<'a> Parser<'a> {
             return Err(self.error(token.span, msg, None));
         };
 
-        let type_annotation = if self.match_token(&[TokenType::Colon]) {
+        let type_annotation = if self.maybe_consume(&[TokenType::Colon]) {
             Some(self.parse_type()?)
         } else {
             None
@@ -607,7 +596,7 @@ impl<'a> Parser<'a> {
     fn parse_function_statement(&mut self) -> Result<LetStatement, ParseError> {
         let _ctx = self.context("function declaration");
 
-        let mutable = self.match_token(&[TokenType::KeywordMut]);
+        let mutable = self.maybe_consume(&[TokenType::KeywordMut]);
 
         let name_token = self.peek().clone();
         let name = if let TokenType::Identifier(s) = name_token.token_type.clone() {
@@ -623,7 +612,7 @@ impl<'a> Parser<'a> {
 
         let params = self.parse_parameters()?;
 
-        let return_type = if self.match_token(&[TokenType::Colon]) {
+        let return_type = if self.maybe_consume(&[TokenType::Colon]) {
             self.parse_type()?
         } else {
             Type::Primary(TypePrimary::Named(
@@ -656,7 +645,7 @@ impl<'a> Parser<'a> {
 
         let primary = self.parse_type_primary()?;
 
-        if self.match_token(&[TokenType::Arrow]) {
+        if self.maybe_consume(&[TokenType::Arrow]) {
             let return_type = self.parse_type()?;
             let span = Span::new(primary.span().start, return_type.span().end);
             return Ok(Type::Function {
@@ -683,7 +672,7 @@ impl<'a> Parser<'a> {
                     let mut args = Vec::new();
                     while !self.check(TokenType::CloseBracket) && !self.is_at_end() {
                         args.push(self.parse_type()?);
-                        if !self.match_token(&[TokenType::Comma]) {
+                        if !self.maybe_consume(&[TokenType::Comma]) {
                             break;
                         }
                     }
@@ -806,8 +795,8 @@ impl<'a> Parser<'a> {
                 });
             }
 
-            if !self.match_token(&[TokenType::Comma]) {
-                self.match_token(&[TokenType::Semicolon]);
+            if !self.maybe_consume(&[TokenType::Comma]) {
+                self.maybe_consume(&[TokenType::Semicolon]);
                 if !self.check(TokenType::CloseBrace) {
                     break;
                 }
@@ -836,7 +825,7 @@ impl<'a> Parser<'a> {
             self.consume(TokenType::Semicolon, "Expected ';' after expression.", None)?;
         } else {
             // Optional semicolon at EOF
-            self.match_token(&[TokenType::Semicolon]);
+            self.maybe_consume(&[TokenType::Semicolon]);
         }
 
         let span = Span::new(expr.span().start, self.previous().span.end);
@@ -876,7 +865,7 @@ impl<'a> Parser<'a> {
     fn parse_assignment_expression(&mut self) -> Result<Expression, ParseError> {
         let expr = self.parse_range_expression()?;
 
-        if self.match_token(&[
+        if self.maybe_consume(&[
             TokenType::Assign,
             TokenType::PlusEqual,
             TokenType::MinusEqual,
@@ -908,7 +897,7 @@ impl<'a> Parser<'a> {
     fn parse_range_expression(&mut self) -> Result<Expression, ParseError> {
         let expr = self.parse_logical_or_expression()?;
 
-        if self.match_token(&[TokenType::DotDotLess, TokenType::DotDotEqual]) {
+        if self.maybe_consume(&[TokenType::DotDotLess, TokenType::DotDotEqual]) {
             let operator_token = self.previous().clone();
             let inclusive = operator_token.token_type == TokenType::DotDotEqual;
             let end = self.parse_logical_or_expression()?;
@@ -927,7 +916,7 @@ impl<'a> Parser<'a> {
 
     fn parse_logical_or_expression(&mut self) -> Result<Expression, ParseError> {
         let mut expr = self.parse_logical_and_expression()?;
-        while self.match_token(&[TokenType::PipePipe]) {
+        while self.maybe_consume(&[TokenType::PipePipe]) {
             let right = self.parse_logical_and_expression()?;
             let span = Span::new(expr.span().start, right.span().end);
             expr = Expression::Binary(BinaryExpression {
@@ -942,7 +931,7 @@ impl<'a> Parser<'a> {
 
     fn parse_logical_and_expression(&mut self) -> Result<Expression, ParseError> {
         let mut expr = self.parse_equality_expression()?;
-        while self.match_token(&[TokenType::AmpAmp]) {
+        while self.maybe_consume(&[TokenType::AmpAmp]) {
             let right = self.parse_equality_expression()?;
             let span = Span::new(expr.span().start, right.span().end);
             expr = Expression::Binary(BinaryExpression {
@@ -957,7 +946,7 @@ impl<'a> Parser<'a> {
 
     fn parse_equality_expression(&mut self) -> Result<Expression, ParseError> {
         let mut expr = self.parse_comparison_expression()?;
-        while self.match_token(&[TokenType::Equal, TokenType::NotEqual]) {
+        while self.maybe_consume(&[TokenType::Equal, TokenType::NotEqual]) {
             let operator_token = self.previous().clone();
             let right = self.parse_comparison_expression()?;
             let span = Span::new(expr.span().start, right.span().end);
@@ -978,7 +967,7 @@ impl<'a> Parser<'a> {
 
     fn parse_comparison_expression(&mut self) -> Result<Expression, ParseError> {
         let mut expr = self.parse_additive_expression()?;
-        while self.match_token(&[
+        while self.maybe_consume(&[
             TokenType::LessThan,
             TokenType::LessThanEqual,
             TokenType::GreaterThan,
@@ -1006,7 +995,7 @@ impl<'a> Parser<'a> {
 
     fn parse_additive_expression(&mut self) -> Result<Expression, ParseError> {
         let mut expr = self.parse_multiplicative_expression()?;
-        while self.match_token(&[TokenType::Plus, TokenType::Minus]) {
+        while self.maybe_consume(&[TokenType::Plus, TokenType::Minus]) {
             let operator_token = self.previous().clone();
             let right = self.parse_multiplicative_expression()?;
             let span = Span::new(expr.span().start, right.span().end);
@@ -1027,7 +1016,7 @@ impl<'a> Parser<'a> {
 
     fn parse_multiplicative_expression(&mut self) -> Result<Expression, ParseError> {
         let mut expr = self.parse_unary_expression()?;
-        while self.match_token(&[TokenType::Star, TokenType::Slash, TokenType::Percent]) {
+        while self.maybe_consume(&[TokenType::Star, TokenType::Slash, TokenType::Percent]) {
             let operator_token = self.previous().clone();
             let right = self.parse_unary_expression()?;
             let span = Span::new(expr.span().start, right.span().end);
@@ -1048,7 +1037,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_unary_expression(&mut self) -> Result<Expression, ParseError> {
-        if self.match_token(&[TokenType::Bang, TokenType::Minus, TokenType::Plus]) {
+        if self.maybe_consume(&[TokenType::Bang, TokenType::Minus, TokenType::Plus]) {
             let operator_token = self.previous().clone();
             let right = self.parse_unary_expression()?;
             let span = Span::new(operator_token.span.start, right.span().end);
@@ -1071,7 +1060,7 @@ impl<'a> Parser<'a> {
         let expr = self.parse_primary_expression()?;
 
         let mut operators = Vec::new();
-        while self.match_token(&[
+        while self.maybe_consume(&[
             TokenType::Dot,
             TokenType::DoubleColon,
             TokenType::OpenParen,
@@ -1116,7 +1105,7 @@ impl<'a> Parser<'a> {
                     let mut args = Vec::new();
                     while !self.check(TokenType::CloseParen) && !self.is_at_end() {
                         args.push(self.parse_expression()?);
-                        if !self.match_token(&[TokenType::Comma]) {
+                        if !self.maybe_consume(&[TokenType::Comma]) {
                             break;
                         }
                     }
@@ -1277,7 +1266,7 @@ impl<'a> Parser<'a> {
 
         while !self.check(TokenType::CloseBracket) && !self.is_at_end() {
             elements.push(self.parse_expression()?);
-            if !self.match_token(&[TokenType::Comma]) {
+            if !self.maybe_consume(&[TokenType::Comma]) {
                 break;
             }
         }
@@ -1317,7 +1306,7 @@ impl<'a> Parser<'a> {
 
         let then_branch = self.parse_block()?;
 
-        let else_branch = if self.match_token(&[TokenType::KeywordElse]) {
+        let else_branch = if self.maybe_consume(&[TokenType::KeywordElse]) {
             if self.check(TokenType::KeywordIf) {
                 let else_if_expr = self.parse_if_expression()?;
                 Some(Box::new(else_if_expr))
@@ -1386,7 +1375,7 @@ impl<'a> Parser<'a> {
                 span: Span::new(pattern.span().start, body_span.end),
             });
 
-            if !self.match_token(&[TokenType::Comma]) {
+            if !self.maybe_consume(&[TokenType::Comma]) {
                 break;
             }
         }
@@ -1459,7 +1448,7 @@ impl<'a> Parser<'a> {
                     let mut patterns = Vec::new();
                     while !self.check(TokenType::CloseParen) && !self.is_at_end() {
                         patterns.push(self.parse_pattern()?);
-                        if !self.match_token(&[TokenType::Comma]) {
+                        if !self.maybe_consume(&[TokenType::Comma]) {
                             break;
                         }
                     }
@@ -1579,7 +1568,7 @@ impl<'a> Parser<'a> {
                 span: field_span,
             });
 
-            if !self.match_token(&[TokenType::Comma]) {
+            if !self.maybe_consume(&[TokenType::Comma]) {
                 break;
             }
         }
@@ -1603,7 +1592,7 @@ impl<'a> Parser<'a> {
         let _ctx = self.context("lambda expression");
 
         let params = self.parse_parameters()?;
-        let return_type = if self.match_token(&[TokenType::Colon]) {
+        let return_type = if self.maybe_consume(&[TokenType::Colon]) {
             self.parse_type()?
         } else {
             Type::Primary(TypePrimary::Named(
@@ -1667,7 +1656,7 @@ impl<'a> Parser<'a> {
             };
 
             // Type annotation is optional
-            let type_ = if self.match_token(&[TokenType::Colon]) {
+            let type_ = if self.maybe_consume(&[TokenType::Colon]) {
                 self.parse_type()?
             } else {
                 // No type annotation - use a placeholder or inferred type
@@ -1682,7 +1671,7 @@ impl<'a> Parser<'a> {
                 span,
             });
 
-            if !self.match_token(&[TokenType::Comma]) {
+            if !self.maybe_consume(&[TokenType::Comma]) {
                 break;
             }
         }
@@ -1752,7 +1741,7 @@ impl<'a> Parser<'a> {
                 // At end of block - this is the final expression
                 final_expression = Some(Box::new(expr));
                 break;
-            } else if self.match_token(&[TokenType::Semicolon]) {
+            } else if self.maybe_consume(&[TokenType::Semicolon]) {
                 // Has semicolon - it's a statement
                 let span = Span::new(expr.span().start, self.previous().span.end);
                 statements.push(Statement::Expression(ExpressionStatement {
@@ -1820,6 +1809,7 @@ impl<'a> Parser<'a> {
         self.previous()
     }
 
+    // Return true if the current token matches the given type
     fn check(&self, token_type: TokenType) -> bool {
         if self.is_at_end() {
             return false;
@@ -1827,7 +1817,8 @@ impl<'a> Parser<'a> {
         self.peek().token_type == token_type
     }
 
-    fn match_token(&mut self, types: &[TokenType]) -> bool {
+    // Return true if any of the given token types are matched and consumed
+    fn maybe_consume(&mut self, types: &[TokenType]) -> bool {
         for token_type in types {
             if self.check(token_type.clone()) {
                 self.advance();

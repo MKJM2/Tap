@@ -1,13 +1,13 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser as CLAParser, Subcommand};
 use nu_ansi_term::Color;
-use reedline::{DefaultPrompt, DefaultPromptSegment, FileBackedHistory, Reedline, Signal};
+use reedline::{FileBackedHistory, Reedline, Signal};
 use std::fs;
 use std::path::PathBuf;
 use tap::{
-    diagnostics::Reporter, interpreter::Interpreter, lexer::Lexer, parser::Parser as TapParser,
+    diagnostics::Reporter, interpreter::Interpreter, lexer::Lexer, parser::Parser, prompt::Prompt,
 };
 
-#[derive(Parser)]
+#[derive(CLAParser)]
 #[command(name = "tap")]
 #[command(about = "Tap Programming Language", long_about = None)]
 struct Cli {
@@ -79,16 +79,11 @@ fn run_repl() {
 
     let mut line_editor = Reedline::create().with_history(history);
 
-    let prompt = DefaultPrompt::new(
-        DefaultPromptSegment::Basic("tap".to_string()),
-        DefaultPromptSegment::Empty,
-    );
-
     let mut interpreter = Interpreter::new();
     let mut line_num = 1;
 
     loop {
-        let sig = line_editor.read_line(&prompt);
+        let sig = line_editor.read_line(&Prompt);
 
         match sig {
             Ok(Signal::Success(buffer)) => {
@@ -179,7 +174,7 @@ fn execute_repl_line(
     }
 
     // Parse
-    let mut parser = TapParser::new(&tokens, &mut reporter);
+    let mut parser = Parser::new(&tokens, &mut reporter);
     let program = match parser.parse_program() {
         Ok(prog) => prog,
         Err(e) => {
@@ -203,7 +198,8 @@ fn execute_repl_line(
     // Interpret
     match interpreter.interpret(&program) {
         Ok(Some(value)) => {
-            let display = interpreter_value_to_string(&value);
+            // let display = interpreter_value_to_string(&value);
+            let display = interpreter.value_to_display_string(&value);
             Ok(Some(display))
         }
         Ok(None) => Ok(None),
@@ -234,7 +230,7 @@ fn run_file(path: &PathBuf, args: Vec<String>) -> Result<(), String> {
     }
 
     // Parse
-    let mut parser = TapParser::new(&tokens, &mut reporter);
+    let mut parser = Parser::new(&tokens, &mut reporter);
     let program = match parser.parse_program() {
         Ok(prog) => prog,
         Err(e) => {
@@ -268,44 +264,44 @@ fn run_file(path: &PathBuf, args: Vec<String>) -> Result<(), String> {
     }
 }
 
-fn interpreter_value_to_string(value: &tap::interpreter::Value) -> String {
-    use tap::interpreter::Value;
+// fn interpreter_value_to_string(value: &tap::interpreter::Value) -> String {
+//     use tap::interpreter::Value;
 
-    match value {
-        Value::Integer(i) => i.to_string(),
-        Value::Float(f) => f.to_string(),
-        Value::String(s) => format!("\"{}\"", s),
-        Value::Boolean(b) => b.to_string(),
-        Value::Unit => "()".to_string(),
-        Value::List(items) => {
-            let items_str: Vec<String> = items.iter().map(interpreter_value_to_string).collect();
-            format!("[{}]", items_str.join(", "))
-        }
-        Value::Record(fields) => {
-            let fields_str: Vec<String> = fields
-                .iter()
-                .map(|(k, v)| format!("{}: {}", k, interpreter_value_to_string(v)))
-                .collect();
-            format!("{{{}}}", fields_str.join(", "))
-        }
-        Value::Function { name, .. } => {
-            format!(
-                "<function {}>",
-                name.as_ref().unwrap_or(&"anonymous".to_string())
-            )
-        }
-        Value::File { path, .. } => format!("<file '{}'>", path),
-        Value::Args { .. } => "<args>".to_string(),
-        Value::Variant { name, data } => {
-            if let Some(d) = data {
-                format!("{}({})", name, interpreter_value_to_string(d))
-            } else {
-                name.clone()
-            }
-        }
-        _ => format!("{:?}", value),
-    }
-}
+//     match value {
+//         Value::Integer(i) => i.to_string(),
+//         Value::Float(f) => f.to_string(),
+//         Value::String(s) => format!("\"{}\"", s),
+//         Value::Boolean(b) => b.to_string(),
+//         Value::Unit => "()".to_string(),
+//         Value::List(items) => {
+//             let items_str: Vec<String> = items.iter().map(interpreter_value_to_string).collect();
+//             format!("[{}]", items_str.join(", "))
+//         }
+//         Value::Record(fields) => {
+//             let fields_str: Vec<String> = fields
+//                 .iter()
+//                 .map(|(k, v)| format!("{}: {}", k, interpreter_value_to_string(v)))
+//                 .collect();
+//             format!("{{{}}}", fields_str.join(", "))
+//         }
+//         Value::Function { name, .. } => {
+//             format!(
+//                 "<function {}>",
+//                 name.as_ref().unwrap_or(&"anonymous".to_string())
+//             )
+//         }
+//         Value::File { path, .. } => format!("<file '{}'>", path),
+//         Value::Args { .. } => "<args>".to_string(),
+//         Value::Variant { name, data } => {
+//             if let Some(d) = data {
+//                 format!("{}({})", name, interpreter_value_to_string(d))
+//             } else {
+//                 name.clone()
+//             }
+//         }
+//         _ => format!("{:?}", value),
+//     }
+// }
 
 fn print_help() {
     println!("{}", Color::Cyan.bold().paint("Tap REPL Commands:"));
