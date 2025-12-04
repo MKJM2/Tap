@@ -41,11 +41,10 @@ is_id_invalid(id: int): bool = {
 
     // Iterate through all possible lengths (L) of the repeating pattern.
     // The pattern must repeat at least twice, so L must be a divisor of n,
-    // and L must be less than n (i.e., L <= n / 2).
+    // and L must be less or equal to half of n (i.e., L <= n / 2).
     mut L = 1;
     while (L <= n / 2) {
-        // If L is a divisor of n, then id_str *could* be formed by repeating a pattern of length L.
-        if (n % L == 0) {
+        if (n % L == 0) {  // divisor of N, hence could be a repeating pattern
             pattern = id_str.substring(0, L); // Extract the potential repeating pattern
 
             // Reconstruct the string by repeating the pattern n/L times

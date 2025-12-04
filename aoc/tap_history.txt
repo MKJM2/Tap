@@ -1,0 +1,12 @@
+gensym() : string = {
+    mut count : int = 0;
+    next() = {
+        count += 1
+    }
+    "symbol_" + next().to_string()
+gensym() : string = {
+gensym() : string = { 
+gensym() : string = { mut count : int = 0; next() = { count += 1 } "symbol_" + next().to_string() }
+gensym();
+gensym;
+gensym();

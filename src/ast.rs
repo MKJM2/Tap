@@ -225,6 +225,15 @@ pub struct FieldDeclaration {
     pub span: Span,
 }
 
+/// Represents a range expression: `<expr> "..=" <expr>` or `<expr> "..<" <expr>`
+#[derive(Debug, Clone, PartialEq)]
+pub struct RangeExpression {
+    pub start: Box<Expression>,
+    pub end: Box<Expression>,
+    pub inclusive: bool,
+    pub span: Span,
+}
+
 /// Represents an expression in the language.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
@@ -235,6 +244,7 @@ pub enum Expression {
     Lambda(LambdaExpression),
     Binary(BinaryExpression),
     Unary(UnaryExpression),
+    Range(RangeExpression),
     Postfix(PostfixExpression),
     Primary(PrimaryExpression),
     Block(Block), // A block can be an expression if it returns a value.
@@ -250,6 +260,7 @@ impl Expression {
             Expression::Lambda(expr) => expr.span,
             Expression::Binary(expr) => expr.span,
             Expression::Unary(expr) => expr.span,
+            Expression::Range(expr) => expr.span,
             Expression::Postfix(expr) => expr.span,
             Expression::Primary(expr) => expr.span(),
             Expression::Block(block) => block.span,

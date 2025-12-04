@@ -103,10 +103,8 @@ impl<'a> Parser<'a> {
         let start_span = self.peek().span;
 
         while !self.is_at_end() {
-            match self.parse_top_statement() {
-                Ok(stmt) => statements.push(stmt),
-                Err(e) => return Err(e),
-            }
+            let stmt = self.parse_top_statement()?;
+            statements.push(stmt);
         }
 
         let end_span = self.previous().span;
@@ -135,7 +133,7 @@ impl<'a> Parser<'a> {
         }
 
         // Handle for loops (contextual keyword)
-        if self.is_contextual_keyword("for") {
+        if self.check(TokenType::KeywordFor) {
             let expr = self.parse_for_statement()?;
             self.match_token(&[TokenType::Semicolon]);
             let span = Span::new(expr.span().start, self.previous().span.end);
@@ -833,7 +831,14 @@ impl<'a> Parser<'a> {
         let _ctx = self.context("expression statement");
 
         let expr = self.parse_expression()?;
-        self.consume(TokenType::Semicolon, "Expected ';' after expression.", None)?;
+
+        if !self.is_at_end() {
+            self.consume(TokenType::Semicolon, "Expected ';' after expression.", None)?;
+        } else {
+            // Optional semicolon at EOF
+            self.match_token(&[TokenType::Semicolon]);
+        }
+
         let span = Span::new(expr.span().start, self.previous().span.end);
         Ok(ExpressionStatement {
             expression: expr,
@@ -869,7 +874,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_assignment_expression(&mut self) -> Result<Expression, ParseError> {
-        let expr = self.parse_logical_or_expression()?;
+        let expr = self.parse_range_expression()?;
 
         if self.match_token(&[
             TokenType::Assign,
@@ -893,6 +898,26 @@ impl<'a> Parser<'a> {
                 left: Box::new(expr),
                 operator,
                 right: Box::new(right),
+                span,
+            }));
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_range_expression(&mut self) -> Result<Expression, ParseError> {
+        let expr = self.parse_logical_or_expression()?;
+
+        if self.match_token(&[TokenType::DotDotLess, TokenType::DotDotEqual]) {
+            let operator_token = self.previous().clone();
+            let inclusive = operator_token.token_type == TokenType::DotDotEqual;
+            let end = self.parse_logical_or_expression()?;
+            let span = Span::new(expr.span().start, end.span().end);
+
+            return Ok(Expression::Range(RangeExpression {
+                start: Box::new(expr),
+                end: Box::new(end),
+                inclusive,
                 span,
             }));
         }
@@ -1489,7 +1514,7 @@ impl<'a> Parser<'a> {
 
         let pattern = self.parse_pattern()?;
 
-        if !self.is_contextual_keyword("in") {
+        if !self.check(TokenType::KeywordIn) {
             let token = self.peek().clone();
             let msg = format!(
                 "Expected 'in' after loop variable, but found {:?}.",

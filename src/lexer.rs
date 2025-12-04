@@ -49,6 +49,10 @@ pub enum TokenType {
     // Double colon for type paths
     DoubleColon, // ::
 
+    // Ranges
+    DotDotEqual, // ..=
+    DotDotLess,  // ..<
+
     // Literals
     Identifier(String),
     Integer(i64),
@@ -239,7 +243,18 @@ impl<'a> Lexer<'a> {
             }
             '.' => {
                 self.advance();
-                self.add_token(TokenType::Dot)
+                if self.peek() == '.' {
+                    self.advance();
+                    if self.match_char('=') {
+                        self.add_token(TokenType::DotDotEqual)
+                    } else if self.match_char('<') {
+                        self.add_token(TokenType::DotDotLess);
+                    } else {
+                        self.add_token(TokenType::Dot);
+                    }
+                } else {
+                    self.add_token(TokenType::Dot)
+                }
             }
             '!' => {
                 self.advance();
@@ -469,6 +484,7 @@ impl<'a> Lexer<'a> {
             "else" | "albo" | "lub" | "w_innym_razie" => TokenType::KeywordElse,
             "while" | "dopóki" => TokenType::KeywordWhile,
             "for" | "dla" => TokenType::KeywordFor,
+            "in" | "w" => TokenType::KeywordIn,
             "match" | "dopasuj" => TokenType::KeywordMatch,
             "true" | "prawda" => TokenType::KeywordTrue,
             "false" | "fałsz" => TokenType::KeywordFalse,

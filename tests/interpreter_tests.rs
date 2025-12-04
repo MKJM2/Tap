@@ -197,7 +197,7 @@ mod interpreter_tests {
         let source = "x;";
         assert_interpret_output_and_dump_ast!(
             source,
-            Err(RuntimeError::TypeError("Undefined variable: x".to_string()))
+            Err(RuntimeError::Type("Undefined variable: x".to_string()))
         );
     }
 
@@ -211,7 +211,7 @@ mod interpreter_tests {
     fn test_interpret_binary_logical_and_error() {
         assert_interpret_output_and_dump_ast!(
             "1 && 0;",
-            Err(RuntimeError::TypeError(
+            Err(RuntimeError::Type(
                 "Type mismatch in binary operation".into()
             ))
         );
@@ -222,7 +222,7 @@ mod interpreter_tests {
         let source = "10 + 3.5;";
         assert_interpret_output_and_dump_ast!(
             source,
-            Err(RuntimeError::TypeError(
+            Err(RuntimeError::Type(
                 "Type mismatch in binary operation".to_string()
             ))
         );
@@ -629,10 +629,34 @@ mod interpreter_tests {
         ";
         assert_interpret_output_and_dump_ast!(
             source,
-            Err(RuntimeError::TypeError(
+            Err(RuntimeError::Type(
                 "Type mismatch in binary operation".to_string()
             ))
         );
+    }
+
+    #[test]
+    fn test_basic_range_inclusive() {
+        let source = "
+            mut sum = 0;
+            for i in 0..=5 {
+                sum += i;
+            }
+            sum;
+        ";
+        assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Integer(15))));
+    }
+
+    #[test]
+    fn test_basic_range_exclusive() {
+        let source = "
+            mut sum = 0;
+            for i in 0..<5 {
+                sum += i;
+            }
+            sum;
+        ";
+        assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Integer(10))));
     }
 
     #[test]
@@ -1309,7 +1333,7 @@ mod interpreter_tests {
         "#;
 
         let result = interpret_source_with_ast(source).result;
-        assert!(matches!(result, Err(RuntimeError::TypeError(_))));
+        assert!(matches!(result, Err(RuntimeError::Type(_))));
     }
 
     #[test]

@@ -32,6 +32,11 @@ pub enum Value {
         name: String,
         data: Option<Box<Value>>,
     },
+    Range {
+        start: i64,
+        end: i64,
+        inclusive: bool,
+    },
     Unit,
 }
 
@@ -98,7 +103,7 @@ impl Args {
 #[derive(Error, Debug, Clone, PartialEq)]
 pub enum RuntimeError {
     #[error("Type error: {0}")]
-    TypeError(String),
+    Type(String),
     #[error("Division by zero")]
     DivisionByZero,
     #[error("Return: {0:?}")]
@@ -285,9 +290,10 @@ impl Interpreter {
                             return Ok(Value::Unit);
                         }
 
-                        let current_val = self.env.get(name).ok_or(RuntimeError::TypeError(
-                            format!("Undefined variable: {}", name),
-                        ))?;
+                        let current_val = self
+                            .env
+                            .get(name)
+                            .ok_or(RuntimeError::Type(format!("Undefined variable: {}", name)))?;
                         let right_val = self.eval_expr(&binary_expr.right)?;
 
                         let base_op = match binary_expr.operator {
@@ -314,7 +320,7 @@ impl Interpreter {
                                 } = &postfix_expr.operators[0]
                                 {
                                     let record =
-                                        self.env.get(var_name).ok_or(RuntimeError::TypeError(
+                                        self.env.get(var_name).ok_or(RuntimeError::Type(
                                             format!("Undefined variable: {}", var_name),
                                         ))?;
 
@@ -328,16 +334,15 @@ impl Interpreter {
                                 if let PostfixOperator::ListAccess { index, .. } =
                                     &postfix_expr.operators[0]
                                 {
-                                    let list =
-                                        self.env.get(var_name).ok_or(RuntimeError::TypeError(
-                                            format!("Undefined variable: {}", var_name),
-                                        ))?;
+                                    let list = self.env.get(var_name).ok_or(RuntimeError::Type(
+                                        format!("Undefined variable: {}", var_name),
+                                    ))?;
 
                                     if let Value::List(mut elements) = list {
                                         let idx_val = self.eval_expr(index)?;
                                         if let Value::Integer(idx) = idx_val {
                                             if idx < 0 || idx as usize >= elements.len() {
-                                                return Err(RuntimeError::TypeError(format!(
+                                                return Err(RuntimeError::Type(format!(
                                                     "Index {} out of bounds",
                                                     idx
                                                 )));
@@ -374,15 +379,42 @@ impl Interpreter {
                 result
             }
             Expression::Postfix(postfix_expr) => self.eval_postfix_expression(postfix_expr),
+            Expression::Range(range_expr) => self.eval_range_expression(range_expr),
+        }
+    }
+
+    fn eval_range_expression(
+        &mut self,
+        range_expr: &RangeExpression,
+    ) -> Result<Value, RuntimeError> {
+        let start_val = self.eval_expr(&range_expr.start)?;
+        let end_val = self.eval_expr(&range_expr.end)?;
+
+        match (start_val, end_val) {
+            (Value::Integer(start), Value::Integer(end)) => Ok(Value::Range {
+                start,
+                end,
+                inclusive: range_expr.inclusive,
+            }),
+            (Value::Integer(_), _) => Err(RuntimeError::Type(
+                "Range end bound must be an integer".to_string(),
+            )),
+            (_, Value::Integer(_)) => Err(RuntimeError::Type(
+                "Range start bound must be an integer".to_string(),
+            )),
+            _ => Err(RuntimeError::Type(
+                "Range bounds must be integers".to_string(),
+            )),
         }
     }
 
     fn eval_primary(&mut self, primary: &PrimaryExpression) -> Result<Value, RuntimeError> {
         match primary {
             PrimaryExpression::Literal(literal, _) => self.eval_literal(literal),
-            PrimaryExpression::Identifier(name, _) => self.env.get(name).ok_or(
-                RuntimeError::TypeError(format!("Undefined variable: {}", name)),
-            ),
+            PrimaryExpression::Identifier(name, _) => self
+                .env
+                .get(name)
+                .ok_or(RuntimeError::Type(format!("Undefined variable: {}", name))),
             PrimaryExpression::Parenthesized(expr, _) => self.eval_expr(expr),
             PrimaryExpression::List(list_literal) => {
                 let mut elements = Vec::new();
@@ -392,7 +424,7 @@ impl Interpreter {
                 Ok(Value::List(elements))
             }
             PrimaryExpression::Record(record_literal) => self.eval_record_literal(record_literal),
-            PrimaryExpression::This(_) => self.env.get("this").ok_or(RuntimeError::TypeError(
+            PrimaryExpression::This(_) => self.env.get("this").ok_or(RuntimeError::Type(
                 "Cannot use 'this' outside of a method".to_string(),
             )),
         }
@@ -435,6 +467,24 @@ impl Interpreter {
     fn eval_for_expression(&mut self, for_expr: &ForExpression) -> Result<Value, RuntimeError> {
         let iterable = self.eval_expr(&for_expr.iterable)?;
         match iterable {
+            Value::Range {
+                start,
+                end,
+                inclusive,
+            } => {
+                let actual_end = if inclusive { end + 1 } else { end };
+
+                for i in start..actual_end {
+                    self.bind_pattern(&for_expr.pattern, Value::Integer(i))?;
+                    match self.eval_block(&for_expr.body) {
+                        Err(RuntimeError::Break) => break,
+                        Err(RuntimeError::Continue) => continue,
+                        Err(e) => return Err(e),
+                        Ok(_) => {}
+                    }
+                }
+                Ok(Value::Unit)
+            }
             Value::List(elements) => {
                 for element in elements {
                     // Don't push extra scope - bind pattern in current scope
@@ -448,7 +498,7 @@ impl Interpreter {
                 }
                 Ok(Value::Unit)
             }
-            _ => Err(RuntimeError::TypeError(
+            _ => Err(RuntimeError::Type(
                 "For loop requires an iterable value".to_string(),
             )),
         }
@@ -475,7 +525,7 @@ impl Interpreter {
             }
         }
 
-        Err(RuntimeError::TypeError(
+        Err(RuntimeError::Type(
             "No matching pattern in match expression".to_string(),
         ))
     }
@@ -547,7 +597,7 @@ impl Interpreter {
             match func_name.as_str() {
                 "print" => {
                     if args.len() != 1 {
-                        return Err(RuntimeError::TypeError("print expects 1 argument".into()));
+                        return Err(RuntimeError::Type("print expects 1 argument".into()));
                     }
                     let value = self.eval_expr(&args[0])?;
                     println!("{}", self.value_to_display_string(&value));
@@ -555,7 +605,7 @@ impl Interpreter {
                 }
                 "eprint" => {
                     if args.len() != 1 {
-                        return Err(RuntimeError::TypeError("eprint expects 1 argument".into()));
+                        return Err(RuntimeError::Type("eprint expects 1 argument".into()));
                     }
                     let value = self.eval_expr(&args[0])?;
                     eprintln!("{}", self.value_to_display_string(&value));
@@ -563,23 +613,19 @@ impl Interpreter {
                 }
                 "open" => {
                     if args.len() != 2 {
-                        return Err(RuntimeError::TypeError("open expects 2 arguments".into()));
+                        return Err(RuntimeError::Type("open expects 2 arguments".into()));
                     }
                     let path = self.eval_expr(&args[0])?;
                     let mode = self.eval_expr(&args[1])?;
                     if let (Value::String(p), Value::String(m)) = (path, mode) {
                         return self.open_file(p, m);
                     }
-                    return Err(RuntimeError::TypeError(
-                        "open arguments must be strings".into(),
-                    ));
+                    return Err(RuntimeError::Type("open arguments must be strings".into()));
                 }
                 "input" => {
                     use std::io::{self, Write};
                     if args.len() > 1 {
-                        return Err(RuntimeError::TypeError(
-                            "input expects 0 or 1 argument".into(),
-                        ));
+                        return Err(RuntimeError::Type("input expects 0 or 1 argument".into()));
                     }
                     if args.len() == 1 {
                         let prompt = self.eval_expr(&args[0])?;
@@ -589,7 +635,7 @@ impl Interpreter {
                     let mut line = String::new();
                     io::stdin()
                         .read_line(&mut line)
-                        .map_err(|_| RuntimeError::TypeError("Failed to read from stdin".into()))?;
+                        .map_err(|_| RuntimeError::Type("Failed to read from stdin".into()))?;
                     return Ok(Value::String(line.trim_end_matches('\n').to_string()));
                 }
                 _ => {} // Not a built-in, continue with regular function call
@@ -621,7 +667,7 @@ impl Interpreter {
 
                 // Regular function call
                 if params.len() != args.len() {
-                    return Err(RuntimeError::TypeError(format!(
+                    return Err(RuntimeError::Type(format!(
                         "Function expects {} arguments, got {}",
                         params.len(),
                         args.len()
@@ -663,7 +709,7 @@ impl Interpreter {
 
                 result
             }
-            _ => Err(RuntimeError::TypeError(
+            _ => Err(RuntimeError::Type(
                 "Cannot call non-function value".to_string(),
             )),
         }
@@ -684,7 +730,7 @@ impl Interpreter {
             // String splitting
             (Value::String(s), "split") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError("split expects 1 argument".into()));
+                    return Err(RuntimeError::Type("split expects 1 argument".into()));
                 }
                 let delim = self.eval_expr(&args[0])?;
                 if let Value::String(d) = delim {
@@ -694,25 +740,23 @@ impl Interpreter {
                         .collect();
                     Ok(Value::List(parts))
                 } else {
-                    Err(RuntimeError::TypeError(
-                        "split delimiter must be string".into(),
-                    ))
+                    Err(RuntimeError::Type("split delimiter must be string".into()))
                 }
             }
 
             // Parse string to integer
-            (Value::String(s), "parse_int") => {
-                s.trim().parse::<i64>().map(Value::Integer).map_err(|_| {
-                    RuntimeError::TypeError(format!("Cannot parse '{}' as integer", s))
-                })
-            }
+            (Value::String(s), "parse_int") => s
+                .trim()
+                .parse::<i64>()
+                .map(Value::Integer)
+                .map_err(|_| RuntimeError::Type(format!("Cannot parse '{}' as integer", s))),
 
             // Parse string to float
             (Value::String(s), "parse_float") => s
                 .trim()
                 .parse::<f64>()
                 .map(Value::Float)
-                .map_err(|_| RuntimeError::TypeError(format!("Cannot parse '{}' as float", s))),
+                .map_err(|_| RuntimeError::Type(format!("Cannot parse '{}' as float", s))),
 
             // Trim whitespace
             (Value::String(s), "trim") => Ok(Value::String(s.trim().to_string())),
@@ -726,15 +770,13 @@ impl Interpreter {
             // Check if string contains substring
             (Value::String(s), "contains") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        "contains expects 1 argument".into(),
-                    ));
+                    return Err(RuntimeError::Type("contains expects 1 argument".into()));
                 }
                 let needle = self.eval_expr(&args[0])?;
                 if let Value::String(n) = needle {
                     Ok(Value::Boolean(s.contains(n.as_str())))
                 } else {
-                    Err(RuntimeError::TypeError(
+                    Err(RuntimeError::Type(
                         "contains argument must be string".into(),
                     ))
                 }
@@ -743,15 +785,13 @@ impl Interpreter {
             // Check if string starts with prefix
             (Value::String(s), "starts_with") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        "starts_with expects 1 argument".into(),
-                    ));
+                    return Err(RuntimeError::Type("starts_with expects 1 argument".into()));
                 }
                 let prefix = self.eval_expr(&args[0])?;
                 if let Value::String(p) = prefix {
                     Ok(Value::Boolean(s.starts_with(p.as_str())))
                 } else {
-                    Err(RuntimeError::TypeError(
+                    Err(RuntimeError::Type(
                         "starts_with argument must be string".into(),
                     ))
                 }
@@ -760,15 +800,13 @@ impl Interpreter {
             // Check if string ends with suffix
             (Value::String(s), "ends_with") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        "ends_with expects 1 argument".into(),
-                    ));
+                    return Err(RuntimeError::Type("ends_with expects 1 argument".into()));
                 }
                 let suffix = self.eval_expr(&args[0])?;
                 if let Value::String(suf) = suffix {
                     Ok(Value::Boolean(s.ends_with(suf.as_str())))
                 } else {
-                    Err(RuntimeError::TypeError(
+                    Err(RuntimeError::Type(
                         "ends_with argument must be string".into(),
                     ))
                 }
@@ -777,16 +815,14 @@ impl Interpreter {
             // Replace substring
             (Value::String(s), "replace") => {
                 if args.len() != 2 {
-                    return Err(RuntimeError::TypeError(
-                        "replace expects 2 arguments".into(),
-                    ));
+                    return Err(RuntimeError::Type("replace expects 2 arguments".into()));
                 }
                 let from = self.eval_expr(&args[0])?;
                 let to = self.eval_expr(&args[1])?;
                 if let (Value::String(f), Value::String(t)) = (from, to) {
                     Ok(Value::String(s.replace(f.as_str(), t.as_str())))
                 } else {
-                    Err(RuntimeError::TypeError(
+                    Err(RuntimeError::Type(
                         "replace arguments must be strings".into(),
                     ))
                 }
@@ -801,22 +837,17 @@ impl Interpreter {
             // Get character at index
             (Value::String(s), "char_at") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError("char_at expects 1 argument".into()));
+                    return Err(RuntimeError::Type("char_at expects 1 argument".into()));
                 }
                 let idx = self.eval_expr(&args[0])?;
                 if let Value::Integer(i) = idx {
                     if i < 0 || i as usize >= s.len() {
-                        return Err(RuntimeError::TypeError(format!(
-                            "Index {} out of bounds",
-                            i
-                        )));
+                        return Err(RuntimeError::Type(format!("Index {} out of bounds", i)));
                     }
                     let ch = s.chars().nth(i as usize).unwrap();
                     Ok(Value::String(ch.to_string()))
                 } else {
-                    Err(RuntimeError::TypeError(
-                        "char_at index must be integer".into(),
-                    ))
+                    Err(RuntimeError::Type("char_at index must be integer".into()))
                 }
             }
 
@@ -829,9 +860,7 @@ impl Interpreter {
             // Find first occurrence of substring
             (Value::String(s), "index_of") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        "index_of expects 1 argument".into(),
-                    ));
+                    return Err(RuntimeError::Type("index_of expects 1 argument".into()));
                 }
                 let needle = self.eval_expr(&args[0])?;
                 if let Value::String(n) = needle {
@@ -840,7 +869,7 @@ impl Interpreter {
                         None => Ok(Value::Integer(-1)),
                     }
                 } else {
-                    Err(RuntimeError::TypeError(
+                    Err(RuntimeError::Type(
                         "index_of argument must be string".into(),
                     ))
                 }
@@ -849,9 +878,7 @@ impl Interpreter {
             // Substring (already exists but keeping for completeness)
             (Value::String(s), "substring") => {
                 if args.len() != 2 {
-                    return Err(RuntimeError::TypeError(
-                        "substring expects 2 arguments".into(),
-                    ));
+                    return Err(RuntimeError::Type("substring expects 2 arguments".into()));
                 }
                 let start = self.eval_expr(&args[0])?;
                 let len = self.eval_expr(&args[1])?;
@@ -863,13 +890,13 @@ impl Interpreter {
                         if start <= s.len() {
                             Ok(Value::String(s[start..end].to_string()))
                         } else {
-                            Err(RuntimeError::TypeError(format!(
+                            Err(RuntimeError::Type(format!(
                                 "Start index {} out of bounds",
                                 start
                             )))
                         }
                     }
-                    _ => Err(RuntimeError::TypeError(
+                    _ => Err(RuntimeError::Type(
                         "substring arguments must be integers".into(),
                     )),
                 }
@@ -883,7 +910,7 @@ impl Interpreter {
             // Push to end
             (Value::List(elements), "push") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError("push expects 1 argument".into()));
+                    return Err(RuntimeError::Type("push expects 1 argument".into()));
                 }
                 let value = self.eval_expr(&args[0])?;
                 let mut new_list = elements.clone();
@@ -894,7 +921,7 @@ impl Interpreter {
             // Append to end (alias for push)
             (Value::List(elements), "append") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError("append expects 1 argument".into()));
+                    return Err(RuntimeError::Type("append expects 1 argument".into()));
                 }
                 let value = self.eval_expr(&args[0])?;
                 let mut new_list = elements.clone();
@@ -905,7 +932,7 @@ impl Interpreter {
             // Pop from end
             (Value::List(elements), "pop") => {
                 if elements.is_empty() {
-                    return Err(RuntimeError::TypeError("Cannot pop from empty list".into()));
+                    return Err(RuntimeError::Type("Cannot pop from empty list".into()));
                 }
                 let mut new_list = elements.clone();
                 let popped = new_list.pop().unwrap();
@@ -915,47 +942,37 @@ impl Interpreter {
             // Remove at index
             (Value::List(elements), "remove") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError("remove expects 1 argument".into()));
+                    return Err(RuntimeError::Type("remove expects 1 argument".into()));
                 }
                 let idx = self.eval_expr(&args[0])?;
                 if let Value::Integer(i) = idx {
                     if i < 0 || i as usize >= elements.len() {
-                        return Err(RuntimeError::TypeError(format!(
-                            "Index {} out of bounds",
-                            i
-                        )));
+                        return Err(RuntimeError::Type(format!("Index {} out of bounds", i)));
                     }
                     let mut new_list = elements.clone();
                     let removed = new_list.remove(i as usize);
                     Ok(removed)
                 } else {
-                    Err(RuntimeError::TypeError(
-                        "remove index must be integer".into(),
-                    ))
+                    Err(RuntimeError::Type("remove index must be integer".into()))
                 }
             }
 
             // Insert at index
             (Value::List(elements), "insert") => {
                 if args.len() != 2 {
-                    return Err(RuntimeError::TypeError("insert expects 2 arguments".into()));
+                    return Err(RuntimeError::Type("insert expects 2 arguments".into()));
                 }
                 let idx = self.eval_expr(&args[0])?;
                 let value = self.eval_expr(&args[1])?;
                 if let Value::Integer(i) = idx {
                     if i < 0 || i as usize > elements.len() {
-                        return Err(RuntimeError::TypeError(format!(
-                            "Index {} out of bounds",
-                            i
-                        )));
+                        return Err(RuntimeError::Type(format!("Index {} out of bounds", i)));
                     }
                     let mut new_list = elements.clone();
                     new_list.insert(i as usize, value);
                     Ok(Value::List(new_list))
                 } else {
-                    Err(RuntimeError::TypeError(
-                        "insert index must be integer".into(),
-                    ))
+                    Err(RuntimeError::Type("insert index must be integer".into()))
                 }
             }
 
@@ -999,7 +1016,7 @@ impl Interpreter {
                     });
                     Ok(Value::List(sorted))
                 } else {
-                    Err(RuntimeError::TypeError(
+                    Err(RuntimeError::Type(
                         "Cannot sort list with mixed or unsortable types".into(),
                     ))
                 }
@@ -1008,9 +1025,7 @@ impl Interpreter {
             // Check if list contains value
             (Value::List(elements), "contains") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        "contains expects 1 argument".into(),
-                    ));
+                    return Err(RuntimeError::Type("contains expects 1 argument".into()));
                 }
                 let target = self.eval_expr(&args[0])?;
                 Ok(Value::Boolean(elements.contains(&target)))
@@ -1019,9 +1034,7 @@ impl Interpreter {
             // Find index of value
             (Value::List(elements), "index_of") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        "index_of expects 1 argument".into(),
-                    ));
+                    return Err(RuntimeError::Type("index_of expects 1 argument".into()));
                 }
                 let target = self.eval_expr(&args[0])?;
                 match elements.iter().position(|v| v == &target) {
@@ -1033,7 +1046,7 @@ impl Interpreter {
             // Slice list
             (Value::List(elements), "slice") => {
                 if args.len() != 2 {
-                    return Err(RuntimeError::TypeError("slice expects 2 arguments".into()));
+                    return Err(RuntimeError::Type("slice expects 2 arguments".into()));
                 }
                 let start = self.eval_expr(&args[0])?;
                 let end = self.eval_expr(&args[1])?;
@@ -1044,13 +1057,13 @@ impl Interpreter {
                         if start <= end && start <= elements.len() {
                             Ok(Value::List(elements[start..end].to_vec()))
                         } else {
-                            Err(RuntimeError::TypeError(format!(
+                            Err(RuntimeError::Type(format!(
                                 "Invalid slice range {}..{}",
                                 s, e
                             )))
                         }
                     }
-                    _ => Err(RuntimeError::TypeError(
+                    _ => Err(RuntimeError::Type(
                         "slice arguments must be integers".into(),
                     )),
                 }
@@ -1059,7 +1072,7 @@ impl Interpreter {
             // Join list of strings
             (Value::List(elements), "join") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError("join expects 1 argument".into()));
+                    return Err(RuntimeError::Type("join expects 1 argument".into()));
                 }
                 let separator = self.eval_expr(&args[0])?;
                 if let Value::String(sep) = separator {
@@ -1069,9 +1082,7 @@ impl Interpreter {
                             if let Value::String(s) = v {
                                 Ok(s.clone())
                             } else {
-                                Err(RuntimeError::TypeError(
-                                    "join requires list of strings".into(),
-                                ))
+                                Err(RuntimeError::Type("join requires list of strings".into()))
                             }
                         })
                         .collect();
@@ -1080,16 +1091,14 @@ impl Interpreter {
                         Err(e) => Err(e),
                     }
                 } else {
-                    Err(RuntimeError::TypeError(
-                        "join separator must be string".into(),
-                    ))
+                    Err(RuntimeError::Type("join separator must be string".into()))
                 }
             }
 
             // Map over list
             (Value::List(elements), "map") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError(
+                    return Err(RuntimeError::Type(
                         "map expects 1 argument (function)".into(),
                     ));
                 }
@@ -1107,7 +1116,7 @@ impl Interpreter {
                                 Value::Boolean(b) => LiteralValue::Boolean(*b),
                                 Value::Unit => LiteralValue::None,
                                 _ => {
-                                    return Err(RuntimeError::TypeError(
+                                    return Err(RuntimeError::Type(
                                         "Cannot map complex types".into(),
                                     ));
                                 }
@@ -1124,7 +1133,7 @@ impl Interpreter {
             // Filter list
             (Value::List(elements), "filter") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError(
+                    return Err(RuntimeError::Type(
                         "filter expects 1 argument (function)".into(),
                     ));
                 }
@@ -1140,7 +1149,7 @@ impl Interpreter {
                             Value::Boolean(b) => LiteralValue::Boolean(*b),
                             Value::Unit => LiteralValue::None,
                             _ => {
-                                return Err(RuntimeError::TypeError(
+                                return Err(RuntimeError::Type(
                                     "Cannot filter complex types".into(),
                                 ));
                             }
@@ -1152,7 +1161,7 @@ impl Interpreter {
                     if let Value::Boolean(true) = keep {
                         results.push(elem.clone());
                     } else if !matches!(keep, Value::Boolean(_)) {
-                        return Err(RuntimeError::TypeError(
+                        return Err(RuntimeError::Type(
                             "filter predicate must return boolean".into(),
                         ));
                     }
@@ -1162,14 +1171,16 @@ impl Interpreter {
             }
 
             // Get first element
-            (Value::List(elements), "first") => elements.first().cloned().ok_or(
-                RuntimeError::TypeError("Cannot get first of empty list".into()),
-            ),
+            (Value::List(elements), "first") => elements
+                .first()
+                .cloned()
+                .ok_or(RuntimeError::Type("Cannot get first of empty list".into())),
 
             // Get last element
-            (Value::List(elements), "last") => elements.last().cloned().ok_or(
-                RuntimeError::TypeError("Cannot get last of empty list".into()),
-            ),
+            (Value::List(elements), "last") => elements
+                .last()
+                .cloned()
+                .ok_or(RuntimeError::Type("Cannot get last of empty list".into())),
 
             // Check if list is empty
             (Value::List(elements), "is_empty") => Ok(Value::Boolean(elements.is_empty())),
@@ -1188,20 +1199,18 @@ impl Interpreter {
             // Power
             (Value::Integer(i), "pow") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError("pow expects 1 argument".into()));
+                    return Err(RuntimeError::Type("pow expects 1 argument".into()));
                 }
                 let exp = self.eval_expr(&args[0])?;
                 if let Value::Integer(e) = exp {
                     if e < 0 {
-                        return Err(RuntimeError::TypeError(
+                        return Err(RuntimeError::Type(
                             "pow exponent must be non-negative".into(),
                         ));
                     }
                     Ok(Value::Integer(i.pow(e as u32)))
                 } else {
-                    Err(RuntimeError::TypeError(
-                        "pow exponent must be integer".into(),
-                    ))
+                    Err(RuntimeError::Type("pow exponent must be integer".into()))
                 }
             }
 
@@ -1231,15 +1240,13 @@ impl Interpreter {
             // Power
             (Value::Float(f), "pow") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError("pow expects 1 argument".into()));
+                    return Err(RuntimeError::Type("pow expects 1 argument".into()));
                 }
                 let exp = self.eval_expr(&args[0])?;
                 match exp {
                     Value::Float(e) => Ok(Value::Float(f.powf(e))),
                     Value::Integer(e) => Ok(Value::Float(f.powi(e as i32))),
-                    _ => Err(RuntimeError::TypeError(
-                        "pow exponent must be number".into(),
-                    )),
+                    _ => Err(RuntimeError::Type("pow exponent must be number".into())),
                 }
             }
 
@@ -1251,30 +1258,24 @@ impl Interpreter {
             // ==================== FILE METHODS ====================
             (Value::File { id, closed, .. }, "read") => {
                 if *closed {
-                    return Err(RuntimeError::TypeError(
-                        "Cannot read from closed file".into(),
-                    ));
+                    return Err(RuntimeError::Type("Cannot read from closed file".into()));
                 }
                 self.file_read(*id)
             }
 
             (Value::File { id, closed, .. }, "read_lines") => {
                 if *closed {
-                    return Err(RuntimeError::TypeError(
-                        "Cannot read from closed file".into(),
-                    ));
+                    return Err(RuntimeError::Type("Cannot read from closed file".into()));
                 }
                 self.file_read_lines(*id)
             }
 
             (Value::File { id, closed, .. }, "write") => {
                 if *closed {
-                    return Err(RuntimeError::TypeError(
-                        "Cannot write to closed file".into(),
-                    ));
+                    return Err(RuntimeError::Type("Cannot write to closed file".into()));
                 }
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError("write expects 1 argument".into()));
+                    return Err(RuntimeError::Type("write expects 1 argument".into()));
                 }
                 let text = self.eval_expr(&args[0])?;
                 self.file_write(*id, &self.value_to_display_string(&text))
@@ -1282,14 +1283,10 @@ impl Interpreter {
 
             (Value::File { id, closed, .. }, "write_line") => {
                 if *closed {
-                    return Err(RuntimeError::TypeError(
-                        "Cannot write to closed file".into(),
-                    ));
+                    return Err(RuntimeError::Type("Cannot write to closed file".into()));
                 }
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        "write_line expects 1 argument".into(),
-                    ));
+                    return Err(RuntimeError::Type("write_line expects 1 argument".into()));
                 }
                 let text = self.eval_expr(&args[0])?;
                 self.file_write(*id, &format!("{}\n", self.value_to_display_string(&text)))
@@ -1314,9 +1311,7 @@ impl Interpreter {
 
             (Value::Args(args_obj), "get") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        "args.get expects 1 argument".into(),
-                    ));
+                    return Err(RuntimeError::Type("args.get expects 1 argument".into()));
                 }
                 let idx = self.eval_expr(&args[0])?;
                 if let Value::Integer(i) = idx {
@@ -1325,23 +1320,19 @@ impl Interpreter {
                     }
                     Ok(Value::String(args_obj.values[i as usize].clone()))
                 } else {
-                    Err(RuntimeError::TypeError(
-                        "args.get index must be integer".into(),
-                    ))
+                    Err(RuntimeError::Type("args.get index must be integer".into()))
                 }
             }
 
             (Value::Args(args_obj), "has") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError(
-                        "args.has expects 1 argument".into(),
-                    ));
+                    return Err(RuntimeError::Type("args.has expects 1 argument".into()));
                 }
                 let flag = self.eval_expr(&args[0])?;
                 if let Value::String(f) = flag {
                     Ok(Value::Boolean(args_obj.flags.contains_key(&f)))
                 } else {
-                    Err(RuntimeError::TypeError(
+                    Err(RuntimeError::Type(
                         "args.has argument must be string".into(),
                     ))
                 }
@@ -1349,7 +1340,7 @@ impl Interpreter {
 
             (Value::Args(args_obj), "get_option") => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::TypeError(
+                    return Err(RuntimeError::Type(
                         "args.get_option expects 1 argument".into(),
                     ));
                 }
@@ -1360,14 +1351,14 @@ impl Interpreter {
                         None => Ok(Value::Unit),
                     }
                 } else {
-                    Err(RuntimeError::TypeError(
+                    Err(RuntimeError::Type(
                         "args.get_option argument must be string".into(),
                     ))
                 }
             }
 
             // ==================== FALLBACK ====================
-            _ => Err(RuntimeError::TypeError(format!(
+            _ => Err(RuntimeError::Type(format!(
                 "Unknown method '{}' for type {:?}",
                 method,
                 std::mem::discriminant(&receiver)
@@ -1490,12 +1481,12 @@ impl Interpreter {
                 fields
                     .get(field_name)
                     .cloned()
-                    .ok_or(RuntimeError::TypeError(format!(
+                    .ok_or(RuntimeError::Type(format!(
                         "Field '{}' not found",
                         field_name
                     )))
             }
-            _ => Err(RuntimeError::TypeError(
+            _ => Err(RuntimeError::Type(
                 "Cannot access field on non-record value".to_string(),
             )),
         }
@@ -1512,21 +1503,15 @@ impl Interpreter {
                 match index_value {
                     Value::Integer(idx) => {
                         if idx < 0 {
-                            return Err(RuntimeError::TypeError(format!(
-                                "Index {} out of bounds",
-                                idx
-                            )));
+                            return Err(RuntimeError::Type(format!("Index {} out of bounds", idx)));
                         }
                         let idx = idx as usize;
                         elements
                             .get(idx)
                             .cloned()
-                            .ok_or(RuntimeError::TypeError(format!(
-                                "Index {} out of bounds",
-                                idx
-                            )))
+                            .ok_or(RuntimeError::Type(format!("Index {} out of bounds", idx)))
                     }
-                    _ => Err(RuntimeError::TypeError(
+                    _ => Err(RuntimeError::Type(
                         "List index must be an integer".to_string(),
                     )),
                 }
@@ -1536,20 +1521,17 @@ impl Interpreter {
                 match index_value {
                     Value::Integer(idx) => {
                         if idx < 0 || idx as usize >= s.len() {
-                            return Err(RuntimeError::TypeError(format!(
-                                "Index {} out of bounds",
-                                idx
-                            )));
+                            return Err(RuntimeError::Type(format!("Index {} out of bounds", idx)));
                         }
                         let ch = s.chars().nth(idx as usize).unwrap();
                         Ok(Value::String(ch.to_string()))
                     }
-                    _ => Err(RuntimeError::TypeError(
+                    _ => Err(RuntimeError::Type(
                         "String index must be an integer".to_string(),
                     )),
                 }
             }
-            _ => Err(RuntimeError::TypeError(
+            _ => Err(RuntimeError::Type(
                 "Cannot index non-list value".to_string(),
             )),
         }
@@ -1647,7 +1629,7 @@ impl Interpreter {
             UnaryOperator::Minus => match right {
                 Value::Integer(i) => Ok(Value::Integer(-i)),
                 Value::Float(f) => Ok(Value::Float(-f)),
-                _ => Err(RuntimeError::TypeError(
+                _ => Err(RuntimeError::Type(
                     "Unary minus can only be applied to integers and floats".into(),
                 )),
             },
@@ -1655,7 +1637,7 @@ impl Interpreter {
             UnaryOperator::Plus => match right {
                 Value::Integer(i) => Ok(Value::Integer(i)),
                 Value::Float(f) => Ok(Value::Float(f)),
-                _ => Err(RuntimeError::TypeError(
+                _ => Err(RuntimeError::Type(
                     "Unary plus can only be applied to integers and floats".into(),
                 )),
             },
@@ -1683,7 +1665,7 @@ impl Interpreter {
                     BinaryOperator::Or => Ok(Value::Boolean(*l || *r)),
                     _ => unreachable!(),
                 },
-                _ => Err(RuntimeError::TypeError(
+                _ => Err(RuntimeError::Type(
                     "Type mismatch in binary operation".into(),
                 )),
             };
@@ -1712,7 +1694,7 @@ impl Interpreter {
                 BinaryOperator::LessThanEqual => Ok(Value::Boolean(l <= r)),
                 BinaryOperator::GreaterThan => Ok(Value::Boolean(l > r)),
                 BinaryOperator::GreaterThanEqual => Ok(Value::Boolean(l >= r)),
-                _ => Err(RuntimeError::TypeError("Invalid integer operator".into())),
+                _ => Err(RuntimeError::Type("Invalid integer operator".into())),
             },
             (Value::Float(l), Value::Float(r)) => match op {
                 BinaryOperator::Add => Ok(Value::Float(l + r)),
@@ -1726,18 +1708,18 @@ impl Interpreter {
                 BinaryOperator::LessThanEqual => Ok(Value::Boolean(l <= r)),
                 BinaryOperator::GreaterThan => Ok(Value::Boolean(l > r)),
                 BinaryOperator::GreaterThanEqual => Ok(Value::Boolean(l >= r)),
-                _ => Err(RuntimeError::TypeError("Invalid float operator".into())),
+                _ => Err(RuntimeError::Type("Invalid float operator".into())),
             },
             (Value::Float(l), Value::Integer(r)) => match op {
                 BinaryOperator::Divide => Ok(Value::Float(l / r as f64)),
                 BinaryOperator::Modulo => Ok(Value::Float(l % r as f64)),
-                _ => Err(RuntimeError::TypeError("Invalid float operator".into())),
+                _ => Err(RuntimeError::Type("Invalid float operator".into())),
             },
             (Value::String(l), Value::String(r)) => match op {
                 BinaryOperator::Add => Ok(Value::String(format!("{}{}", l, r))),
                 BinaryOperator::Equal => Ok(Value::Boolean(l == r)),
                 BinaryOperator::NotEqual => Ok(Value::Boolean(l != r)),
-                _ => Err(RuntimeError::TypeError("Invalid string operator".into())),
+                _ => Err(RuntimeError::Type("Invalid string operator".into())),
             },
             (Value::List(l), Value::List(r)) => match op {
                 BinaryOperator::Add => {
@@ -1747,9 +1729,9 @@ impl Interpreter {
                 }
                 BinaryOperator::Equal => Ok(Value::Boolean(l == r)),
                 BinaryOperator::NotEqual => Ok(Value::Boolean(l != r)),
-                _ => Err(RuntimeError::TypeError("Invalid list operator".into())),
+                _ => Err(RuntimeError::Type("Invalid list operator".into())),
             },
-            _ => Err(RuntimeError::TypeError(
+            _ => Err(RuntimeError::Type(
                 "Type mismatch in binary operation".into(),
             )),
         }
@@ -1803,6 +1785,17 @@ impl Interpreter {
                     name.clone()
                 }
             }
+            Value::Range {
+                start,
+                end,
+                inclusive,
+            } => {
+                if *inclusive {
+                    format!("{}..={}", start, end)
+                } else {
+                    format!("{}..<{}", start, end)
+                }
+            }
             _ => format!("{:?}", value),
         }
     }
@@ -1815,7 +1808,7 @@ impl Interpreter {
             "w" => FileMode::Write,
             "a" => FileMode::Append,
             _ => {
-                return Err(RuntimeError::TypeError(format!(
+                return Err(RuntimeError::Type(format!(
                     "Invalid file mode: {}",
                     mode_str
                 )));
@@ -1848,7 +1841,7 @@ impl Interpreter {
                     closed: false,
                 })
             }
-            Err(e) => Err(RuntimeError::TypeError(format!(
+            Err(e) => Err(RuntimeError::Type(format!(
                 "Failed to open file '{}': {}",
                 path, e
             ))),
@@ -1859,13 +1852,13 @@ impl Interpreter {
         use std::io::Read;
 
         if id >= self.files.len() || self.files[id].is_none() {
-            return Err(RuntimeError::TypeError("Invalid file descriptor".into()));
+            return Err(RuntimeError::Type("Invalid file descriptor".into()));
         }
 
         let mut content = String::new();
         if let Some(file) = &mut self.files[id] {
             file.read_to_string(&mut content)
-                .map_err(|e| RuntimeError::TypeError(format!("Failed to read file: {}", e)))?;
+                .map_err(|e| RuntimeError::Type(format!("Failed to read file: {}", e)))?;
         }
 
         Ok(Value::String(content))
@@ -1875,14 +1868,14 @@ impl Interpreter {
         use std::io::{BufRead, BufReader};
 
         if id >= self.files.len() || self.files[id].is_none() {
-            return Err(RuntimeError::TypeError("Invalid file descriptor".into()));
+            return Err(RuntimeError::Type("Invalid file descriptor".into()));
         }
 
         let lines: Vec<Value> = if let Some(file) = &self.files[id] {
             BufReader::new(file)
                 .lines()
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| RuntimeError::TypeError(format!("Failed to read lines: {}", e)))?
+                .map_err(|e| RuntimeError::Type(format!("Failed to read lines: {}", e)))?
                 .into_iter()
                 .map(Value::String)
                 .collect()
@@ -1897,12 +1890,12 @@ impl Interpreter {
         use std::io::Write;
 
         if id >= self.files.len() || self.files[id].is_none() {
-            return Err(RuntimeError::TypeError("Invalid file descriptor".into()));
+            return Err(RuntimeError::Type("Invalid file descriptor".into()));
         }
 
         if let Some(file) = &mut self.files[id] {
             file.write_all(text.as_bytes())
-                .map_err(|e| RuntimeError::TypeError(format!("Failed to write to file: {}", e)))?;
+                .map_err(|e| RuntimeError::Type(format!("Failed to write to file: {}", e)))?;
         }
 
         Ok(Value::Unit)
@@ -1910,7 +1903,7 @@ impl Interpreter {
 
     fn file_close(&mut self, id: usize) -> Result<Value, RuntimeError> {
         if id >= self.files.len() {
-            return Err(RuntimeError::TypeError("Invalid file descriptor".into()));
+            return Err(RuntimeError::Type("Invalid file descriptor".into()));
         }
 
         self.files[id] = None;
