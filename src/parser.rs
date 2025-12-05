@@ -899,7 +899,11 @@ impl<'a> Parser<'a> {
     fn parse_range_expression(&mut self) -> Result<Expression, ParseError> {
         let expr = self.parse_logical_or_expression()?;
 
-        if self.maybe_consume(&[TokenType::DotDotLess, TokenType::DotDotEqual]) {
+        if self.maybe_consume(&[
+            TokenType::DotDot,
+            TokenType::DotDotLess,
+            TokenType::DotDotEqual,
+        ]) {
             let operator_token = self.previous().clone();
             let inclusive = operator_token.token_type == TokenType::DotDotEqual;
             let end = self.parse_logical_or_expression()?;

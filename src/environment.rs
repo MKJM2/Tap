@@ -1,54 +1,72 @@
 use crate::interpreter::Value;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
+
+#[derive(Debug, Clone, PartialEq)]
+struct Scope {
+    values: HashMap<String, Value>,
+    enclosing: Option<Environment>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Environment {
-    scopes: Vec<HashMap<String, Value>>,
+    state: Rc<RefCell<Scope>>,
 }
 
 impl Environment {
     pub fn new() -> Self {
         Environment {
-            scopes: vec![HashMap::new()],
+            state: Rc::new(RefCell::new(Scope {
+                values: HashMap::new(),
+                enclosing: None,
+            })),
         }
     }
 
-    pub fn push_scope(&mut self) {
-        self.scopes.push(HashMap::new());
-    }
-
-    pub fn pop_scope(&mut self) {
-        if self.scopes.len() > 1 {
-            self.scopes.pop();
+    pub fn enclose(&self) -> Self {
+        Environment {
+            state: Rc::new(RefCell::new(Scope {
+                values: HashMap::new(),
+                enclosing: Some(self.clone()),
+            })),
         }
     }
 
     pub fn define(&mut self, name: String, value: Value) {
-        if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name, value);
-        }
-    }
-
-    pub fn set(&mut self, name: &str, value: Value) -> bool {
-        // Search from innermost to outermost scope and update
-        for scope in self.scopes.iter_mut().rev() {
-            if scope.contains_key(name) {
-                scope.insert(name.to_string(), value);
-                return true;
-            }
-        }
-        // If not found, define in current scope
-        self.define(name.to_string(), value);
-        true
+        self.state.borrow_mut().values.insert(name, value);
     }
 
     pub fn get(&self, name: &str) -> Option<Value> {
-        // Search from innermost to outermost scope
-        for scope in self.scopes.iter().rev() {
-            if let Some(value) = scope.get(name) {
-                return Some(value.clone());
-            }
+        let state = self.state.borrow();
+        if let Some(val) = state.values.get(name) {
+            return Some(val.clone());
         }
+
+        if let Some(enclosing) = &state.enclosing {
+            return enclosing.get(name);
+        }
+
         None
+    }
+
+    fn update_if_exists(&self, name: &str, value: Value) -> bool {
+        let mut state = self.state.borrow_mut();
+        if state.values.contains_key(name) {
+            state.values.insert(name.to_string(), value);
+            return true;
+        }
+        if let Some(enclosing) = &state.enclosing {
+            return enclosing.update_if_exists(name, value);
+        }
+        false
+    }
+
+    pub fn set(&mut self, name: &str, value: Value) -> bool {
+        if self.update_if_exists(name, value.clone()) {
+            return true;
+        }
+        self.define(name.to_string(), value);
+        true
     }
 }

@@ -69,11 +69,11 @@ mod interpreter_tests {
             if output.result != expected_val {
                 eprintln!("\n--- Test Assertion Failed ---");
                 eprintln!("Source:\n```tap\n{}\n```", output.source);
-                if let Some(ast) = output.ast {
-                    eprintln!("AST:\n{:#?}", ast);
-                } else {
-                    eprintln!("AST: Not available due to parsing error.");
-                }
+                // if let Some(ast) = output.ast {
+                //     eprintln!("AST:\n{:#?}", ast);
+                // } else {
+                //     eprintln!("AST: Not available due to parsing error.");
+                // }
                 eprintln!("Expected: {:?}", expected_val); // Use the explicitly typed variable here
                 eprintln!("Actual: {:?}", output.result);
                 eprintln!("--- End Test Assertion Failed ---");

@@ -50,6 +50,7 @@ pub enum TokenType {
     DoubleColon, // ::
 
     // Ranges
+    DotDot,      // ..
     DotDotEqual, // ..=
     DotDotLess,  // ..<
 
