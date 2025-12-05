@@ -3,60 +3,70 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-/// Represents a runtime environment, which stores variables and functions.
+#[derive(Debug, Clone, PartialEq)]
+struct Scope {
+    values: HashMap<String, Value>,
+    enclosing: Option<Environment>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Environment {
-    store: HashMap<String, Value>,
-    parent: Option<Rc<RefCell<Environment>>>,
+    state: Rc<RefCell<Scope>>,
 }
 
 impl Environment {
-    /// Creates a new, empty `Environment`.
     pub fn new() -> Self {
         Environment {
-            store: HashMap::new(),
-            parent: None,
+            state: Rc::new(RefCell::new(Scope {
+                values: HashMap::new(),
+                enclosing: None,
+            })),
         }
     }
 
-    /// Creates a new `Environment` that is enclosed by another `Environment`.
-    pub fn new_enclosed(parent: Rc<RefCell<Environment>>) -> Self {
+    pub fn enclose(&self) -> Self {
         Environment {
-            store: HashMap::new(),
-            parent: Some(parent),
-        }
-    }
-
-    /// Gets a value from the environment.
-    pub fn get(&self, name: &str) -> Option<Value> {
-        if let Some(value) = self.store.get(name) {
-            Some(value.clone())
-        } else if let Some(parent_rc) = &self.parent {
-            let parent = parent_rc.borrow();
-            parent.get(name)
-        } else {
-            None
+            state: Rc::new(RefCell::new(Scope {
+                values: HashMap::new(),
+                enclosing: Some(self.clone()),
+            })),
         }
     }
 
     pub fn define(&mut self, name: String, value: Value) {
-        self.store.insert(name, value);
+        self.state.borrow_mut().values.insert(name, value);
     }
 
-    /// Sets a value in the environment, traversing up to parent scopes.
-    pub fn set(&mut self, name: String, value: Value) {
-        if self.store.contains_key(&name) {
-            self.store.insert(name, value);
-            return;
+    pub fn get(&self, name: &str) -> Option<Value> {
+        let state = self.state.borrow();
+        if let Some(val) = state.values.get(name) {
+            return Some(val.clone());
         }
 
-        if let Some(parent_rc) = &self.parent {
-            parent_rc.borrow_mut().set(name, value);
-        } else {
-            // If it doesn't exist in any scope, define it in the current one.
-            // This is wrong for assignment, but the parser should prevent this.
-            // For now, we will allow it to create a global.
-            self.store.insert(name, value);
+        if let Some(enclosing) = &state.enclosing {
+            return enclosing.get(name);
         }
+
+        None
+    }
+
+    fn update_if_exists(&self, name: &str, value: Value) -> bool {
+        let mut state = self.state.borrow_mut();
+        if state.values.contains_key(name) {
+            state.values.insert(name.to_string(), value);
+            return true;
+        }
+        if let Some(enclosing) = &state.enclosing {
+            return enclosing.update_if_exists(name, value);
+        }
+        false
+    }
+
+    pub fn set(&mut self, name: &str, value: Value) -> bool {
+        if self.update_if_exists(name, value.clone()) {
+            return true;
+        }
+        self.define(name.to_string(), value);
+        true
     }
 }

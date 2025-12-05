@@ -1,0 +1,97 @@
+get_file_content(): string = {
+    // `args` is a built-in injected into global env by interpreter runtime
+    file = open(args.get(0), "r");
+    content: string = file.read();
+    file.close();
+    content
+}
+
+// Parse a line like "987654321111111" into a list of integers
+parse_bank(line: string): [int] = {
+    mut digits: [int] = [];
+    chars = line.split("");
+    for ch in chars {
+        if (ch != "") {
+            digit = ch.parse_int();
+            digits = digits.push(digit);
+        }
+    }
+    digits
+}
+
+// Parse all lines into a list of battery banks
+get_banks(content: string): [int] = {
+    lines = content.split("\n");
+    mut banks: [[int]] = [];
+
+
+    for line in lines {
+        trimmed = line.trim();
+        if (trimmed.length() > 0) {
+            bank = parse_bank(trimmed);
+            banks = banks.push(bank);
+        }
+    }
+
+    banks
+}
+
+solve(): int = {
+    content = get_file_content();
+    banks = get_banks(content);
+
+    // For every index position in each line, we build a
+    // prefix max list
+
+    // after that, we iterate through each bank,
+    // at each battery treating it as the leftmost one,
+    // and querying the prefix max list for the max to the right
+
+    // at each step we get a number (left battery * 10 + right battery).
+    // if this number is larger than the current max, we update the max
+
+    mut max_joltages: [int] = [];
+
+    // OR: for bank in banks {
+    // but wanted to test my Range implementation for today
+    for bidx in 0..<banks.length() {  // TODO: Remove < ? Swift -> Rust?
+        bank = banks[bidx];
+
+        max_to_right: [int] = [];
+
+        max: int = -1;
+        for j in 1..=bank.length() {
+            idx = bank.length() - j;
+            batt: int = bank[idx];
+            if (batt > max) {
+                max = batt;
+            }
+            max_to_right = max_to_right.push(max);
+        }
+        max_to_right = max_to_right.reverse();
+        print(max_to_right);
+
+        max_joltages = max_joltages.push(-1);  // TODO: really need to make this in-place
+        for i in 0..<(bank.length()-1) {
+            left_batt: int = bank[i];
+            right_batt: int = max_to_right[i + 1];
+
+            joltage: int = left_batt * 10 + right_batt;
+            if (joltage > max_joltages[bidx]) {
+                max_joltages[bidx] = joltage;
+            }
+        }
+        print(max_joltages);
+    }
+
+
+
+    mut res = 0;
+    for i in 0..<max_joltages.length() {
+        res += max_joltages[i];
+    }
+    print("-----");
+    print(res);
+}
+
+solve();

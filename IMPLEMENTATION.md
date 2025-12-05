@@ -1,306 +1,43 @@
-When running `cargo t`, several tests are failing.
-I want you to systemically fix them one by one. For each test that you've attempted a fix for,
-create a separate Markdown file explaining the issue and how you fixed it.
-DO NOT Change the tests themselves. When you think a test is wrong, CONFIRM with the user first and foremost.
+In the top-level grammar.ebnf file, you will find a EBNF description of a grammar for the
+Tap programming language.
 
-Current state of `cargo t`:
-```
+# Main instructions
 
-running 37 tests
-test test_array_access_expression ... ok
-test test_array_mutation ... ok
-test test_fib ... ok
-test test_enum_decl ... ok
-test test_dodaj_polish ... ok
-test test_conditional_as_value ... FAILED
-test test_complex_boolean_logic ... FAILED
-test test_early_return_in_loop ... FAILED
-test test_float_arithmetic ... ok
-test test_fib_lambda ... ok
-test test_float_comparison ... ok
-test test_function_returning_lambda ... FAILED
-test test_hello ... ok
-test test_hi_func ... ok
-test test_inline_lambda ... ok
-test test_lambda_declaration ... ok
-test test_iterative_fib ... FAILED
-test test_lambdas2 ... FAILED
-test test_list_sum ... FAILED
-test test_logic_short_circuit_and ... FAILED
-test test_logic_short_circuit_or ... FAILED
-test test_modulo ... ok
-test test_match ... FAILED
-test test_mutual_recursion ... FAILED
-test test_nested_loops_continue ... FAILED
-test test_precedence_order ... ok
-test test_option_type ... FAILED
-test test_nested_loops_break ... FAILED
-test test_nested_if_expression ... FAILED
-test test_silnia_polish ... ok
-test test_struct_access_nested ... FAILED
-test test_string_concatenation ... FAILED
-test test_structs ... FAILED
-test test_unit_return ... FAILED
-test test_unary_operators ... FAILED
-test test_polish_if_else ... FAILED
-test test_polish_while_loop has been running for over 60 seconds
-^C
-```
-I have disabled the test that was timing out and here is the test results:
-```
-failures:
+Your MAIN, PRIMARY task right now: write the tests as per TESTS.md. Don't worry about whether they pass or not.
+Some of the currently written tests may be wrong. You will have to fix them as you go along. But first & primarily: write the new tests and make sure they compile,
+and not necessarily that they pass.
+Remember that for grammar reference you can refer to grammar.ebnf, which is the SINGLE SOURCE OF TRUTH on the grammar.
+For syntax reference, refer to the README.md which provides quite a few useful syntax example constructs.
+NO mocking please. Write real tests that run the real lexer, parser, & interpreter.
 
----- test_early_return_in_loop stdout ----
+For now, implement more parser tests. Once you have a good number of parser tests, get back to me for further instructions.
+There are some parser tests already written, but they are not enough. You will have to write more.
 
-thread 'test_early_return_in_loop' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
+Periodically refer back to this file to recall your top-level goals.
 
-Caused by:
-   0: Failed to parse function definition
-   1: body of 'find_match'
-   2: Unexpected token in block: expected '{', but found '->' at line 2
+---
 
-Location:
-    src/parser.rs:734:13
+### Additional context that was used previously
 
----- test_conditional_as_value stdout ----
+The lexer should handle Unicode correctly (use .chars()) as we will have to handle Polish language syntax eventually.
+Tokens should have spans (start/end char offsets) for better error reporting.
 
-thread 'test_conditional_as_value' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
+As for the parser: it will be a recursive-descent, context-aware parser. Every non-terminal becomes a method. Each method should have a helpful doxy comment,
+including a snippet of the relevant EBNF production.
+Hard context-sensitive rules (e.g., forbidding assignment to non-lvalues, checking pattern validity, enforcing keyword vs identifier distinctions) must be enforced during parsing.
+All productions must be written in a style that is readable, correct, and testable.
+Produce a well-typed AST with enums and structs. Errors should be helpful and provide context
+(what production were we trying to parse?). Each
 
-Caused by:
-   0: Failed to parse declaration statement
-   1: Failed to parse expression or assignment statement
-   2: Unexpected token in expression statement: expected ';', but found '}' at line 7
+As for the interpreter: A tree-walking interpreter.
+Lexically scoped environments. Braces are closures.
 
-Location:
-    src/parser.rs:734:13
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+First-class functions + closures (lexical capture). Strong runtime error diagnostics with spans.
 
----- test_complex_boolean_logic stdout ----
+Start by generating tests for the language. Do good Test Driver Development. Any ambiguities in grammar should be resolved
+by referencing the grammar.ebnf file. It is the single source of truth on the grammar. For a basic source of tests look into the
+top-level TESTS.md file. You WILL HAVE to update this file, checking off implemented tests as you implement more tests.
 
-thread 'test_complex_boolean_logic' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
+---
 
-Caused by:
-   0: Failed to parse expression or assignment statement
-   1: Unexpected token in group: expected ')', but found '||' at line 7
-
-Location:
-    src/parser.rs:734:13
-
----- test_function_returning_lambda stdout ----
-
-thread 'test_function_returning_lambda' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
-
-Caused by:
-   0: Failed to parse function definition
-   1: body of 'make_adder'
-   2: Unexpected token in block: expected '{', but found '->' at line 2
-
-Location:
-    src/parser.rs:734:13
-
----- test_lambdas2 stdout ----
-
-thread 'test_lambdas2' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
-
-Caused by:
-   0: Failed to parse function definition
-   1: body of 'transform'
-   2: Unexpected token in block: expected '{', but found '->' at line 3
-
-Location:
-    src/parser.rs:734:13
-
----- test_list_sum stdout ----
-
-thread 'test_list_sum' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
-
-Caused by:
-   0: Failed to parse for loop
-   1: Unexpected token in field: expected ':', but found '=' at line 6
-
-Location:
-    src/parser.rs:734:13
-
----- test_iterative_fib stdout ----
-
-thread 'test_iterative_fib' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
-
-Caused by:
-   0: Failed to parse function definition
-   1: body of 'fib_iter'
-   2: Unexpected token in block: expected '{', but found '->' at line 2
-
-Location:
-    src/parser.rs:734:13
-
----- test_logic_short_circuit_and stdout ----
-
-thread 'test_logic_short_circuit_and' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
-
-Caused by:
-   0: Failed to parse expression or assignment statement
-   1: Unexpected token in expression statement: expected ';', but found '&&' at line 2
-
-Location:
-    src/parser.rs:734:13
-
----- test_logic_short_circuit_or stdout ----
-
-thread 'test_logic_short_circuit_or' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
-
-Caused by:
-   0: Failed to parse expression or assignment statement
-   1: Unexpected token in expression statement: expected ';', but found '||' at line 2
-
-Location:
-    src/parser.rs:734:13
-
----- test_mutual_recursion stdout ----
-
-thread 'test_mutual_recursion' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
-
-Caused by:
-   0: Failed to parse function definition
-   1: body of 'is_even'
-   2: Unexpected token in block: expected '{', but found '->' at line 2
-
-Location:
-    src/parser.rs:734:13
-
----- test_match stdout ----
-
-thread 'test_match' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
-
-Caused by:
-   0: Failed to parse expression or assignment statement
-   1: Unexpected token in expression statement: expected ';', but found 'Light' at line 2
-
-Location:
-    src/parser.rs:734:13
-
----- test_nested_loops_break stdout ----
-
-thread 'test_nested_loops_break' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
-
-Caused by:
-   0: Failed to parse while loop
-   1: Failed to parse while loop
-   2: Failed to parse if-statement
-   3: Failed to parse expression or assignment statement
-   4: Unexpected token in expression: expected literal, identifier, or '(', but found 'break' at line 10
-
-Location:
-    src/parser.rs:734:13
-
----- test_option_type stdout ----
-
-thread 'test_option_type' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
-
-Caused by:
-   0: Failed to parse expression or assignment statement
-   1: Unexpected token in expression statement: expected ';', but found 'MaybeInt' at line 2
-
-Location:
-    src/parser.rs:734:13
-
----- test_polish_if_else stdout ----
-
-thread 'test_polish_if_else' panicked at tests/integration.rs:524:5:
-assertion `left == right` failed
-  left: Some(Integer(0))
- right: Some(Integer(2))
-
----- test_nested_if_expression stdout ----
-
-thread 'test_nested_if_expression' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
-
-Caused by:
-   0: Failed to parse declaration statement
-   1: Failed to parse if-statement
-   2: Failed to parse expression or assignment statement
-   3: Unexpected token in expression statement: expected ';', but found '}' at line 8
-
-Location:
-    src/parser.rs:734:13
-
----- test_nested_loops_continue stdout ----
-
-thread 'test_nested_loops_continue' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
-
-Caused by:
-   0: Failed to parse while loop
-   1: Failed to parse if-statement
-   2: Failed to parse expression or assignment statement
-   3: Unexpected token in expression: expected literal, identifier, or '(', but found 'continue' at line 7
-
-Location:
-    src/parser.rs:734:13
-
----- test_string_concatenation stdout ----
-
-thread 'test_string_concatenation' panicked at tests/integration.rs:18:42:
-Runtime error: TypeError("Type mismatch in binary op")
-
----- test_unit_return stdout ----
-
-thread 'test_unit_return' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
-
-Caused by:
-   0: Failed to parse expression or assignment statement
-   1: Unexpected token in expression: expected literal, identifier, or '(', but found '{' at line 2
-
-Location:
-    src/parser.rs:734:13
-
----- test_struct_access_nested stdout ----
-
-thread 'test_struct_access_nested' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
-
-Caused by:
-   0: Failed to parse expression or assignment statement
-   1: Unexpected token in expression statement: expected ';', but found 'Point' at line 2
-
-Location:
-    src/parser.rs:734:13
-
----- test_structs stdout ----
-
-thread 'test_structs' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
-
-Caused by:
-   0: Failed to parse expression or assignment statement
-   1: Unexpected token in expression statement: expected ';', but found 'Rect' at line 2
-
-Location:
-    src/parser.rs:734:13
-
----- test_unary_operators stdout ----
-
-thread 'test_unary_operators' panicked at tests/integration.rs:13:42:
-Parser error: Failed to parse top-level statement
-
-Caused by:
-   0: Failed to parse expression or assignment statement
-   1: Unexpected token in expression statement: expected ';', but found '&&' at line 4
-
-Location:
-    src/parser.rs:734:13
-```
+_Remember to follow the main instructions above carefully_

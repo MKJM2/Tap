@@ -46,3 +46,13 @@ CMakeUserPresets.jsonc
 
 target/
 debug/
+
+
+# Tap specific ignores
+.tap_history
+tap_history
+*/.tap_history
+
+
+# AOC specific
+input*

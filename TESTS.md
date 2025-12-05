@@ -1,0 +1,114 @@
+# 100 Tests for the Tap Language
+
+## Lexer
+
+- [ ] Test that the lexer correctly handles all single-character tokens.
+- [ ] Test that the lexer correctly handles all multi-character tokens.
+- [ ] Test that the lexer correctly handles all keywords.
+- [ ] Test that the lexer correctly handles integer literals.
+- [ ] Test that the lexer correctly handles float literals.
+- [ ] Test that the lexer correctly handles string literals.
+- [ ] Test that the lexer correctly handles identifiers.
+- [ ] Test that the lexer correctly handles comments.
+- [ ] Test that the lexer correctly handles whitespace.
+- [ ] Test that the lexer correctly handles a mix of all token types.
+
+## Parser
+
+- [x] Test that the parser correctly parses a simple let statement.
+- [x] Test that the parser correctly parses a let statement with a type annotation.
+- [x] Test that the parser correctly parses a mutable let statement.
+- [x] Test that the parser correctly parses a function definition.
+- [x] Test that the parser correctly parses a function definition with parameters.
+- [x] Test that the parser correctly parses a function definition with a return type.
+- [x] Test that the parser correctly parses a struct definition.
+- [x] Test that the parser correctly parses a struct definition with fields.
+- [x] Test that the parser correctly parses an enum definition.
+- [x] Test that the parser correctly parses an enum definition with variants.
+- [x] Test that the parser correctly parses an if expression.
+- [x] Test that the parser correctly parses an if-else expression.
+- [x] Test that the parser correctly parses a while expression.
+- [x] Test that the parser correctly parses a for expression.
+- [x] Test that the parser correctly parses a match expression.
+- [x] Test that the parser correctly parses a block expression.
+- [x] Test that the parser correctly parses a unary expression.
+- [x] Test that the parser correctly parses a binary expression.
+- [x] Test that the parser correctly parses a postfix expression.
+- [x] Test that the parser correctly parses a primary expression.
+- [x] Test that the parser correctly parses a record literal expression.
+- [x] Test that the parser correctly parses a field access expression.
+- [x] Test that the parser correctly parses a path resolution expression.
+
+## Interpreter
+
+- [ ] Test that the interpreter correctly evaluates an integer literal.
+- [ ] Test that the interpreter correctly evaluates a float literal.
+- [ ] Test that the interpreter correctly evaluates a string literal.
+- [ ] Test that the interpreter correctly evaluates a boolean literal.
+- [ ] Test that the interpreter correctly evaluates a unit literal.
+- [ ] Test that the interpreter correctly evaluates a list literal.
+- [ ] Test that the interpreter correctly evaluates a struct literal.
+- [ ] Test that the interpreter correctly evaluates an enum literal.
+- [ ] Test that the interpreter correctly evaluates a unary plus expression.
+- [ ] Test that the interpreter correctly evaluates a unary minus expression.
+- [ ] Test that the interpreter correctly evaluates a unary not expression.
+- [ ] Test that the interpreter correctly evaluates an addition expression.
+- [ ] Test that the interpreter correctly evaluates a subtraction expression.
+- [ ] Test that the interpreter correctly evaluates a multiplication expression.
+- [ ] Test that the interpreter correctly evaluates a division expression.
+- [ ] Test that the interpreter correctly evaluates an equality expression.
+- [ ] Test that the interpreter correctly evaluates an inequality expression.
+- [ ] Test that the interpreter correctly evaluates a less than expression.
+- [ ] Test that the interpreter correctly evaluates a less than or equal to expression.
+- [ ] Test that the interpreter correctly evaluates a greater than expression.
+- [ ] Test that the interpreter correctly evaluates a greater than or equal to expression.
+- [ ] Test that the interpreter correctly evaluates a logical and expression.
+- [ ] Test that the interpreter correctly evaluates a logical or expression.
+- [ ] Test that the interpreter correctly evaluates a let statement.
+- [ ] Test that the interpreter correctly evaluates an identifier expression.
+- [ ] Test that the interpreter correctly evaluates a function call expression.
+- [ ] Test that the interpreter correctly evaluates a struct field access expression.
+- [ ] Test that the interpreter correctly evaluates an enum variant access expression.
+- [ ] Test that the interpreter correctly evaluates a list element access expression.
+- [ ] Test that the interpreter correctly evaluates an if expression.
+- [ ] Test that the interpreter correctly evaluates an if-else expression.
+- [ ] Test that the interpreter correctly evaluates a while expression.
+- [ ] Test that the interpreter correctly evaluates a for expression.
+- [ ] Test that the interpreter correctly evaluates a match expression.
+- [ ] Test that the interpreter correctly evaluates a block expression.
+- [ ] Test that the interpreter correctly handles a return statement.
+- [ ] Test that the interpreter correctly handles a break statement.
+- [ ] Test that the interpreter correctly handles a continue statement.
+- [ ] Test that the interpreter correctly handles a recursive function call.
+- [ ] Test that the interpreter correctly handles a closure.
+- [ ] Test that the interpreter correctly handles a lambda.
+- [ ] Test that the interpreter correctly handles a struct with methods.
+- [ ] Test that the interpreter correctly handles an enum with methods.
+- [ ] Test that the interpreter correctly handles a list with methods.
+- [ ] Test that the interpreter correctly handles a string with methods.
+- [ ] Test that the interpreter correctly handles a integer with methods.
+- [ ] Test that the interpreter correctly handles a float with methods.
+- [ ] Test that the interpreter correctly handles a boolean with methods.
+- [ ] Test that the interpreter correctly handles a unit with methods.
+- [ ] Test that the interpreter correctly handles a function as an argument.
+- [ ] Test that the interpreter correctly handles a function as a return value.
+- [ ] Test that the interpreter correctly handles a closure as an argument.
+- [ ] Test that the interpreter correctly handles a closure as a return value.
+- [ ] Test that the interpreter correctly handles a lambda as an argument.
+- [ ] Test that the interpreter correctly handles a lambda as a return value.
+- [ ] Test that the interpreter correctly handles a struct as an argument.
+- [ ] Test that the interpreter correctly handles a struct as a return value.
+- [ ] Test that the interpreter correctly handles an enum as an argument.
+- [ ] Test that the interpreter correctly handles an enum as a return value.
+- [ ] Test that the interpreter correctly handles a list as an argument.
+- [ ] Test that the interpreter correctly handles a list as a return value.
+- [ ] Test that the interpreter correctly handles a string as an argument.
+- [ ] Test that the interpreter correctly handles a string as a return value.
+- [ ] Test that the interpreter correctly handles a integer as an argument.
+- [ ] Test that the interpreter correctly handles a integer as a return value.
+- [ ] Test that the interpreter correctly handles a float as an argument.
+- [ ] Test that the interpreter correctly handles a float as a return value.
+- [ ] Test that the interpreter correctly handles a boolean as an argument.
+- [ ] Test that the interpreter correctly handles a boolean as a return value.
+- [ ] Test that the interpreter correctly handles a unit as an argument.
+- [ ] Test that the interpreter correctly handles a unit as a return value.

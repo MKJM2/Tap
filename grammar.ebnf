@@ -2,24 +2,27 @@
 
 <top_stmt_list> ::= (<top_stmt>)*
 
-<top_stmt> ::= <type_decl> ";" 
-             | <let_stmt> 
+<top_stmt> ::= <type_decl> ";"
+             | <fn_bind>
+             | <var_bind>
              | <expr_stmt>
 
 <expr_stmt> ::= <expr> ";"
+
+<opt_semi> ::= ";" | E
 
 <type_decl> ::= "type" <type_name> "=" <type_ctor>
 
 <type_name> ::= <identifier>
 
-<type_ctor> ::= <sum_ctor> | <record_type>
+<type_ctor> ::= <sum_ctor> | <record_type> | <type>
 
 <sum_ctor> ::= <variant> ( "|" <variant> )*
 <variant> ::= <identifier> "(" <type> ")" | <identifier>
 
-<let_stmt> ::= <fn_bind> ";" | <var_bind>
+<binding_stmt> ::= <fn_bind> | <var_bind>
 
-<fn_bind> ::= <opt_mut> <identifier> <param_list> ":" <type> "=" <block>
+<fn_bind> ::= <opt_mut> <identifier> <param_list> ( ":" <type> )? "=" <block> <opt_semi>
 
 <var_bind> ::= <opt_mut> <identifier> ( ":" <type> )? "=" <expr> ";"
 
@@ -27,6 +30,7 @@
 
 <expr> ::= <if_expr>
          | <while_expr>
+         | <for_expr>
          | <match_expr>
          | <lambda_expr>
          | <binary_expr>
@@ -37,13 +41,28 @@
 
 <stmt_list> ::= (<stmt>)*
 
-<stmt> ::= <let_stmt> | <expr> ";"
+<stmt> ::= <binding_stmt>
+         | <return_stmt>
+         | <break_stmt>
+         | <continue_stmt>
+         | <control_flow_expr> <opt_semi>
+         | <expr> ";"
+
+<control_flow_expr> ::= <if_expr> | <while_expr> | <for_expr> | <match_expr>
+
+<return_stmt> ::= "return" <expr>? ";"
+
+<break_stmt> ::= "break" ";"
+
+<continue_stmt> ::= "continue" ";"
 
 <expr_opt> ::= <expr> | E
 
-<if_expr> ::= "if" "(" <expr> ")" <block> ( "else" <block> )?
+<if_expr> ::= "if" "(" <expr> ")" <block> ( "else" ( <if_expr> | <block> ) )?
 
 <while_expr> ::= "while" "(" <expr> ")" <block>
+
+<for_expr> ::= "for" <pattern> "in" <expr> <block>
 
 <match_expr> ::= "match" "(" <expr> ")" "{" <match_arms> "}"
 
@@ -52,9 +71,10 @@
 
 <opt_comma> ::= "," | E
 
-<pattern> ::= "_" 
+<pattern> ::= "_"
             | <identifier>
             | <identifier> "(" <pattern_list>? ")"
+            | <literal>
 
 <pattern_list> ::= <pattern> ("," <pattern>)*
 
@@ -69,15 +89,16 @@
 
 <postfix_expr> ::= <primary> (<postfix_op>)*
 
-<postfix_op> ::= "(" <arg_list>? ")" 
-               | "." <identifier> 
-               | "::" <identifier> 
+<postfix_op> ::= "(" <arg_list>? ")"
+               | "." <identifier>
+               | "::" <identifier>
                | "[" <expr> "]"
 
 <arg_list> ::= <expr> ("," <expr>)*
 
 <primary> ::= <literal>
             | <identifier>
+            | "this"
             | "(" <expr> ")"
             | <list_literal>
             | <record_literal>
@@ -93,21 +114,27 @@
 
 <type_func> ::= <type_primary> ( "->" <type> )?
 
-<type_primary> ::= <type_name> 
-                  | <generic_type> 
-                  | <record_type> 
+<type_list> ::= <type> ("," <type>)*
+
+<type_primary> ::= <type_name>
+                  | <generic_type>
+                  | <record_type>
                   | "[" <type> "]"
 
-<generic_type> ::= <type_name> "[" <type> "]"
+<generic_type> ::= <type_name> "[" <type_list> "]"
 
-<record_type> ::= "{" (<field_decl> ("," <field_decl>)*)? "}"
+<record_type> ::= "{" (<record_member> ("," <record_member>)* ","?)? "}"
+
+<record_member> ::= <field_decl> | <method_decl>
 
 <field_decl> ::= <identifier> ":" <type>
 
-<bin_op> ::= "+" | "-" | "*" | "/" 
-           | "==" | "!=" 
-           | "<" | "<=" | ">" | ">=" 
-           | "&&" | "||" 
+<method_decl> ::= <identifier> <param_list> ":" <type> "=" <block>
+
+<bin_op> ::= "+" | "-" | "*" | "/" | "%"
+           | "==" | "!="
+           | "<" | "<=" | ">" | ">="
+           | "&&" | "||"
            | "+=" | "-=" | "*=" | "/="
 
 <literal> ::= <integer> | <float> | <string> | "true" | "false" | "None"

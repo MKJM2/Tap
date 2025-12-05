@@ -1,99 +1,104 @@
 use std::fmt;
 
+use crate::ast::Span;
+use crate::diagnostics::{Diagnostic, DiagnosticKind, Reporter};
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
-    Identifier,
+    // Single-character tokens
+    Semicolon,    // ;
+    Colon,        // :
+    Comma,        // ,
+    Dot,          // .
+    OpenParen,    // (
+    CloseParen,   // )
+    OpenBrace,    // {
+    CloseBrace,   // }
+    OpenBracket,  // [
+    CloseBracket, // ]
+    Bang,         // !
+
+    // Operators
+    Assign,           // =
+    Equal,            // ==
+    NotEqual,         // !=
+    LessThan,         // <
+    LessThanEqual,    // <=
+    GreaterThan,      // >
+    GreaterThanEqual, // >=
+    Plus,             // +
+    Minus,            // -
+    Star,             // *
+    Slash,            // /
+    Percent,          // %
+    AmpAmp,           // &&
+    Pipe,             // |
+    PipePipe,         // ||
+
+    // Compound assignment operators
+    PlusEqual,    // +=
+    MinusEqual,   // -=
+    StarEqual,    // *=
+    SlashEqual,   // /=
+    PercentEqual, // %=
+
+    // Fat arrow for lambdas and match arms
+    Arrow,    // ->
+    FatArrow, // =>
+
+    // Double colon for type paths
+    DoubleColon, // ::
+
+    // Ranges
+    DotDot,      // ..
+    DotDotEqual, // ..=
+    DotDotLess,  // ..<
+
+    // Literals
+    Identifier(String),
     Integer(i64),
     Float(f64),
     String(String),
-    Semicolon,
-    Assign,
-    AddAssign,
-    SubAssign,
-    MulAssign,
-    DivAssign,
-    ModAssign,
-    XorAssign,
-    OrAssign,
-    AndAssign,
-    NegAssign,
-    Colon,
-    ColonColon,
-    OpPlus,
-    OpMinus,
-    OpMult,
-    OpDivide,
-    OpFloorDiv,
-    OpMod, // Renamed from OpModulo to match Parser
-    OpXor,
-    OpOr,  // Bitwise Or
-    OpAnd, // Bitwise And
-    OpNeg,
-    OpLor,  // Logical ||
-    OpLand, // Logical &&
-    Bang,   // Renamed from OpLneg (!) to match Parser
-    OpIncrement,
-    OpDecrement,
-    OpExponent,
-    Arrow,    // ->
-    ArrowFat, // =>
-    Equal,
-    NotEqual,
-    GreaterThan,
-    GreaterThanEqual,
-    LessThan,
-    LessThanEqual,
-    OpenParen,
-    CloseParen,
-    OpenBrace,
-    CloseBrace,
-    OpenBracket,
-    CloseBracket,
-    Comma,
-    Period,
-    Lambda,     // \
-    Underscore, // _
-    KeywordInt,
-    KeywordStr,
-    KeywordFunc,
-    KeywordReturn,
-    KeywordStruct,
-    KeywordMatch,
-    KeywordEnum,
-    KeywordFor,
-    KeywordIn,
-    KeywordWhile,
-    KeywordContinue,
-    KeywordBreak,
-    KeywordIf,
-    KeywordElse,
-    KeywordTrue,
-    KeywordFalse,
-    KeywordUnit,
-    KeywordType,
-    Unknown,
+
+    // Keywords
+    KeywordType,       // type
+    KeywordMut,        // mut
+    KeywordIf,         // if
+    KeywordElse,       // else
+    KeywordWhile,      // while
+    KeywordFor,        // for
+    KeywordIn,         // in
+    KeywordMatch,      // match
+    KeywordTrue,       // true
+    KeywordFalse,      // false
+    KeywordNone,       // None
+    KeywordThis,       // this
+    KeywordContinue,   // continue
+    KeywordBreak,      // break
+    KeywordReturn,     // return
+    KeywordUnderscore, // _ (used in patterns)
+
+    // End of File
     EndOfFile,
+}
+
+impl TokenType {
+    pub fn is_identifier(&self) -> bool {
+        matches!(self, TokenType::Identifier(_))
+    }
 }
 
 impl fmt::Display for TokenType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct Span {
-    pub lo: usize,
-    pub hi: usize,
-}
-
-impl Span {
-    pub fn new(lo: usize, hi: usize) -> Self {
-        Self { lo, hi }
-    }
-
-    pub fn len(self) -> usize {
-        self.hi - self.lo
+        match self {
+            TokenType::Identifier(s) => write!(f, "IDENTIFIER({})", s),
+            TokenType::Integer(i) => write!(f, "INTEGER({})", i),
+            TokenType::Float(fl) => write!(f, "FLOAT({})", fl),
+            TokenType::String(s) => write!(f, "STRING(\"{}\")", s),
+            TokenType::Percent => write!(f, "PERCENT"),
+            TokenType::PercentEqual => write!(f, "PERCENT_EQUAL"),
+            _ => write!(f, "{:?}", self),
+        }
     }
 }
 
@@ -101,192 +106,71 @@ impl Span {
 pub struct Token {
     pub token_type: TokenType,
     pub lexeme: String,
-    pub line: usize,
     pub span: Span,
 }
 
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{} ({}:{})",
+            self.token_type, self.span.start, self.span.end
+        )
+    }
+}
+
 impl Token {
-    pub fn new(token_type: TokenType, lexeme: String, line: usize, span: Span) -> Self {
+    pub fn new(token_type: TokenType, lexeme: String, span: Span) -> Self {
         Token {
             token_type,
             lexeme,
-            line,
             span,
         }
     }
 }
 
-pub struct Lexer {
+pub struct Lexer<'a> {
     chars: Vec<char>,
     tokens: Vec<Token>,
     start: usize,
     current: usize,
     line: usize,
+    reporter: &'a mut Reporter,
 }
 
-impl Lexer {
-    pub fn new(source: &str) -> Self {
+impl<'a> Lexer<'a> {
+    pub fn new(source: &str, reporter: &'a mut Reporter) -> Self {
         Lexer {
             chars: source.chars().collect(),
             tokens: Vec::new(),
             start: 0,
             current: 0,
-            line: 1,
+            line: 1, // Lines are 1-indexed
+            reporter,
         }
     }
 
-    pub fn tokenize(mut self) -> Result<Vec<Token>, String> {
+    pub fn tokenize(mut self) -> Result<Vec<Token>, Diagnostic> {
         while !self.is_at_end() {
             self.start = self.current;
-            self.scan_token()?;
+            self.scan_token();
         }
+
         self.tokens.push(Token::new(
             TokenType::EndOfFile,
             "".to_string(),
-            self.line,
             Span::new(self.current, self.current),
         ));
-        Ok(self.tokens)
+
+        if self.reporter.has_errors() {
+            Err(self.reporter.diagnostics.remove(0)) // Return first diagnostic if any
+        } else {
+            Ok(self.tokens)
+        }
     }
 
     fn is_at_end(&self) -> bool {
         self.current >= self.chars.len()
-    }
-
-    fn scan_token(&mut self) -> Result<(), String> {
-        let c = self.advance();
-        match c {
-            ';' => self.add_token(TokenType::Semicolon),
-            ':' => {
-                if self.match_char(':') {
-                    self.add_token(TokenType::ColonColon)
-                } else {
-                    self.add_token(TokenType::Colon)
-                }
-            }
-            '(' => self.add_token(TokenType::OpenParen),
-            ')' => self.add_token(TokenType::CloseParen),
-            '{' => self.add_token(TokenType::OpenBrace),
-            '}' => self.add_token(TokenType::CloseBrace),
-            '[' => self.add_token(TokenType::OpenBracket),
-            ']' => self.add_token(TokenType::CloseBracket),
-            ',' => self.add_token(TokenType::Comma),
-            '.' => self.add_token(TokenType::Period),
-            '\\' => self.add_token(TokenType::Lambda),
-            '_' => self.add_token(TokenType::Underscore),
-            '=' => {
-                if self.match_char('=') {
-                    self.add_token(TokenType::Equal)
-                } else if self.match_char('>') {
-                    self.add_token(TokenType::ArrowFat)
-                } else {
-                    self.add_token(TokenType::Assign)
-                }
-            }
-            '+' => {
-                if self.match_char('=') {
-                    self.add_token(TokenType::AddAssign)
-                } else if self.match_char('+') {
-                    self.add_token(TokenType::OpIncrement)
-                } else {
-                    self.add_token(TokenType::OpPlus)
-                }
-            }
-            '-' => {
-                if self.match_char('>') {
-                    self.add_token(TokenType::Arrow)
-                } else if self.match_char('=') {
-                    self.add_token(TokenType::SubAssign)
-                } else if self.match_char('-') {
-                    self.add_token(TokenType::OpDecrement)
-                } else {
-                    self.add_token(TokenType::OpMinus)
-                }
-            }
-            '*' => {
-                if self.match_char('=') {
-                    self.add_token(TokenType::MulAssign)
-                } else if self.match_char('*') {
-                    self.add_token(TokenType::OpExponent)
-                } else {
-                    self.add_token(TokenType::OpMult)
-                }
-            }
-            '/' => {
-                if self.match_char('=') {
-                    self.add_token(TokenType::DivAssign)
-                } else if self.match_char('/') {
-                    self.add_token(TokenType::OpFloorDiv)
-                } else {
-                    self.add_token(TokenType::OpDivide)
-                }
-            }
-            '%' => {
-                if self.match_char('=') {
-                    self.add_token(TokenType::ModAssign)
-                } else {
-                    self.add_token(TokenType::OpMod)
-                }
-            }
-            '^' => {
-                if self.match_char('=') {
-                    self.add_token(TokenType::XorAssign)
-                } else {
-                    self.add_token(TokenType::OpXor)
-                }
-            }
-            '|' => {
-                if self.match_char('=') {
-                    self.add_token(TokenType::OrAssign)
-                } else if self.match_char('|') {
-                    self.add_token(TokenType::OpLor)
-                } else {
-                    self.add_token(TokenType::OpOr)
-                }
-            }
-            '&' => {
-                if self.match_char('=') {
-                    self.add_token(TokenType::AndAssign)
-                } else if self.match_char('&') {
-                    self.add_token(TokenType::OpLand)
-                } else {
-                    self.add_token(TokenType::OpAnd)
-                }
-            }
-            '!' => {
-                if self.match_char('=') {
-                    self.add_token(TokenType::NotEqual)
-                } else {
-                    self.add_token(TokenType::Bang) // Changed from OpLneg
-                }
-            }
-            '>' => {
-                if self.match_char('=') {
-                    self.add_token(TokenType::GreaterThanEqual)
-                } else {
-                    self.add_token(TokenType::GreaterThan)
-                }
-            }
-            '<' => {
-                if self.match_char('=') {
-                    self.add_token(TokenType::LessThanEqual)
-                } else {
-                    self.add_token(TokenType::LessThan)
-                }
-            }
-            '#' => {
-                while self.peek() != '\n' && !self.is_at_end() {
-                    self.advance();
-                }
-            }
-            ' ' | '\r' | '\t' => {}
-            '\n' => self.line += 1,
-            '"' => self.string()?,
-            c if c.is_digit(10) => self.number(),
-            c if c.is_alphabetic() || c == '_' => self.identifier(),
-            _ => self.add_token(TokenType::Unknown),
-        }
-        Ok(())
     }
 
     fn advance(&mut self) -> char {
@@ -298,8 +182,7 @@ impl Lexer {
     fn add_token(&mut self, token_type: TokenType) {
         let text: String = self.chars[self.start..self.current].iter().collect();
         let span = Span::new(self.start, self.current);
-        self.tokens
-            .push(Token::new(token_type, text, self.line, span));
+        self.tokens.push(Token::new(token_type, text, span));
     }
 
     fn match_char(&mut self, expected: char) -> bool {
@@ -324,42 +207,268 @@ impl Lexer {
         self.chars[self.current + 1]
     }
 
-    fn string(&mut self) -> Result<(), String> {
-        while self.peek() != '"' && !self.is_at_end() {
-            if self.peek() == '\n' {
-                self.line += 1;
+    fn scan_token(&mut self) {
+        let c = self.peek();
+        match c {
+            ';' => {
+                self.advance();
+                self.add_token(TokenType::Semicolon)
             }
-            self.advance();
+            ',' => {
+                self.advance();
+                self.add_token(TokenType::Comma)
+            }
+            '(' => {
+                self.advance();
+                self.add_token(TokenType::OpenParen)
+            }
+            ')' => {
+                self.advance();
+                self.add_token(TokenType::CloseParen)
+            }
+            '{' => {
+                self.advance();
+                self.add_token(TokenType::OpenBrace)
+            }
+            '}' => {
+                self.advance();
+                self.add_token(TokenType::CloseBrace)
+            }
+            '[' => {
+                self.advance();
+                self.add_token(TokenType::OpenBracket)
+            }
+            ']' => {
+                self.advance();
+                self.add_token(TokenType::CloseBracket)
+            }
+            '.' => {
+                self.advance();
+                if self.peek() == '.' {
+                    self.advance();
+                    if self.match_char('=') {
+                        self.add_token(TokenType::DotDotEqual)
+                    } else if self.match_char('<') {
+                        self.add_token(TokenType::DotDotLess);
+                    } else {
+                        self.add_token(TokenType::Dot);
+                    }
+                } else {
+                    self.add_token(TokenType::Dot)
+                }
+            }
+            '!' => {
+                self.advance();
+                if self.match_char('=') {
+                    self.add_token(TokenType::NotEqual);
+                } else {
+                    self.add_token(TokenType::Bang);
+                }
+            }
+            '=' => {
+                self.advance();
+                if self.match_char('=') {
+                    self.add_token(TokenType::Equal);
+                } else if self.match_char('>') {
+                    self.add_token(TokenType::FatArrow);
+                } else {
+                    self.add_token(TokenType::Assign);
+                }
+            }
+            '<' => {
+                self.advance();
+                if self.match_char('=') {
+                    self.add_token(TokenType::LessThanEqual);
+                } else {
+                    self.add_token(TokenType::LessThan);
+                }
+            }
+            '>' => {
+                self.advance();
+                if self.match_char('=') {
+                    self.add_token(TokenType::GreaterThanEqual);
+                } else {
+                    self.add_token(TokenType::GreaterThan);
+                }
+            }
+            '+' => {
+                self.advance();
+                if self.match_char('=') {
+                    self.add_token(TokenType::PlusEqual);
+                } else {
+                    self.add_token(TokenType::Plus);
+                }
+            }
+            '-' => {
+                self.advance();
+                if self.match_char('=') {
+                    self.add_token(TokenType::MinusEqual);
+                } else if self.match_char('>') {
+                    self.add_token(TokenType::Arrow);
+                } else {
+                    self.add_token(TokenType::Minus);
+                }
+            }
+            '*' => {
+                self.advance();
+                if self.match_char('=') {
+                    self.add_token(TokenType::StarEqual);
+                } else {
+                    self.add_token(TokenType::Star);
+                }
+            }
+            '/' => {
+                self.advance();
+                if self.match_char('/') {
+                    while self.peek() != '\n' && !self.is_at_end() {
+                        self.advance();
+                    }
+                } else if self.match_char('=') {
+                    self.add_token(TokenType::SlashEqual);
+                } else {
+                    self.add_token(TokenType::Slash);
+                }
+            }
+            '%' => {
+                self.advance();
+                if self.match_char('=') {
+                    self.add_token(TokenType::PercentEqual);
+                } else {
+                    self.add_token(TokenType::Percent);
+                }
+            }
+            '&' => {
+                self.advance();
+                if self.match_char('&') {
+                    self.add_token(TokenType::AmpAmp);
+                } else {
+                    self.error(self.current - 1, "Unexpected character '&'.");
+                }
+            }
+            '|' => {
+                self.advance();
+                if self.match_char('|') {
+                    self.add_token(TokenType::PipePipe);
+                } else {
+                    self.add_token(TokenType::Pipe);
+                }
+            }
+            ':' => {
+                self.advance();
+                if self.match_char(':') {
+                    self.add_token(TokenType::DoubleColon);
+                } else {
+                    self.add_token(TokenType::Colon);
+                }
+            }
+            // Whitespace
+            ' ' | '\r' | '\t' => {
+                self.advance();
+            } // Ignore whitespace
+            '\n' => {
+                self.advance();
+                self.line += 1
+            }
+
+            // Literals
+            '"' => self.string(),
+            _ if c.is_ascii_digit() => self.number(),
+            _ if c.is_alphabetic() || c == '_' => self.identifier(),
+
+            _ => {
+                self.error(self.current, &format!("Unexpected character: {}", c));
+                self.advance();
+            }
         }
-        if self.is_at_end() {
-            return Err("Unterminated string.".to_string());
-        }
+    }
+
+    fn string(&mut self) {
+        // consume opening quote
         self.advance();
-        let value = self.chars[self.start + 1..self.current - 1]
-            .iter()
-            .collect();
-        self.add_token(TokenType::String(value));
-        Ok(())
+
+        let mut value = String::new();
+
+        while !self.is_at_end() {
+            let c = self.advance();
+
+            match c {
+                '"' => {
+                    // closing quote terminates string
+                    self.add_token(TokenType::String(value));
+                    return;
+                }
+
+                '\\' => {
+                    // escaped character
+                    if self.is_at_end() {
+                        self.error(self.current - 1, "Unterminated string escape.");
+                        return;
+                    }
+
+                    let esc = self.advance();
+                    let decoded = match esc {
+                        'n' => '\n',
+                        'r' => '\r',
+                        't' => '\t',
+                        '\\' => '\\',
+                        '"' => '"',
+                        '0' => '\0',
+                        _ => {
+                            self.error(
+                                self.current - 1,
+                                &format!("Invalid escape sequence: \\{}", esc),
+                            );
+                            continue;
+                        }
+                    };
+                    value.push(decoded);
+                }
+
+                '\n' => {
+                    // raw newline inside string: treat as error
+                    self.error(
+                        self.current - 1,
+                        "Unterminated string (newline inside literal).",
+                    );
+                    self.line += 1;
+                    return;
+                }
+
+                ch => value.push(ch),
+            }
+        }
+
+        // EOF reached before closing quote
+        self.error(self.start, "Unterminated string.");
     }
 
     fn number(&mut self) {
-        while self.peek().is_digit(10) {
+        while self.peek().is_ascii_digit() {
             self.advance();
         }
 
+        let mut is_float = false;
         // Look for a fractional part.
-        if self.peek() == '.' && self.peek_next().is_digit(10) {
+        if self.peek() == '.' && self.peek_next().is_ascii_digit() {
+            is_float = true;
             self.advance(); // Consume the "."
-            while self.peek().is_digit(10) {
+            while self.peek().is_ascii_digit() {
                 self.advance();
             }
-            let value_str: String = self.chars[self.start..self.current].iter().collect();
-            let value: f64 = value_str.parse().unwrap();
-            self.add_token(TokenType::Float(value));
+        }
+
+        let value_str: String = self.chars[self.start..self.current].iter().collect();
+
+        if is_float {
+            match value_str.parse::<f64>() {
+                Ok(value) => self.add_token(TokenType::Float(value)),
+                Err(_) => self.error(self.start, "Invalid float literal."),
+            }
         } else {
-            let value_str: String = self.chars[self.start..self.current].iter().collect();
-            let value: i64 = value_str.parse().unwrap();
-            self.add_token(TokenType::Integer(value));
+            match value_str.parse::<i64>() {
+                Ok(value) => self.add_token(TokenType::Integer(value)),
+                Err(_) => self.error(self.start, "Invalid integer literal."),
+            }
         }
     }
 
@@ -367,28 +476,38 @@ impl Lexer {
         while self.peek().is_alphanumeric() || self.peek() == '_' {
             self.advance();
         }
+
         let text: String = self.chars[self.start..self.current].iter().collect();
         let token_type = match text.as_str() {
-            "int" | "całkowita" => TokenType::KeywordInt,
-            "str" | "tekst" => TokenType::KeywordStr,
-            "unit" | "pusty" => TokenType::KeywordUnit,
-            "func" | "funkcja" => TokenType::KeywordFunc,
-            "return" | "zwróć" => TokenType::KeywordReturn,
-            "struct" | "struktura" => TokenType::KeywordStruct,
-            "match" | "dopasuj" => TokenType::KeywordMatch,
-            "enum" | "wyliczenie" => TokenType::KeywordEnum,
-            "if" | "jeśli" => TokenType::KeywordIf,
-            "else" | "inaczej" => TokenType::KeywordElse,
+            "type" | "typ" => TokenType::KeywordType,
+            "mut" | "zmienna" => TokenType::KeywordMut,
+            "if" | "jeżeli" | "jeśli" => TokenType::KeywordIf,
+            "else" | "albo" | "lub" | "w_innym_razie" => TokenType::KeywordElse,
+            "while" | "dopóki" => TokenType::KeywordWhile,
             "for" | "dla" => TokenType::KeywordFor,
             "in" | "w" => TokenType::KeywordIn,
-            "while" | "dopóki" => TokenType::KeywordWhile,
-            "continue" | "kontynuuj" => TokenType::KeywordContinue,
-            "break" | "przerwij" => TokenType::KeywordBreak,
+            "match" | "dopasuj" => TokenType::KeywordMatch,
             "true" | "prawda" => TokenType::KeywordTrue,
             "false" | "fałsz" => TokenType::KeywordFalse,
-            "type" | "typ" => TokenType::KeywordType,
-            _ => TokenType::Identifier,
+            "None" | "Nic" => TokenType::KeywordNone,
+            "this" | "ten" | "ta" | "to" => TokenType::KeywordThis,
+            "continue" | "kontynuuj" | "dalej" => TokenType::KeywordContinue,
+            "break" | "przerwij" | "koniec" => TokenType::KeywordBreak,
+            "return" | "zwróć" => TokenType::KeywordReturn,
+            "_" => TokenType::KeywordUnderscore, // Explicit keyword for '_' pattern
+            _ => TokenType::Identifier(text.clone()),
         };
         self.add_token(token_type);
+    }
+
+    fn error(&mut self, at: usize, message: &str) {
+        self.reporter.add_diagnostic(
+            Diagnostic::new(
+                DiagnosticKind::Error,
+                message.to_string(),
+                Span::new(at, at + 1), // Single character error span
+            )
+            .with_context(format!("Error on line {}", self.line)),
+        );
     }
 }

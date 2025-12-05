@@ -1,4 +1,4 @@
-funkcja dodaj(a, b) {
+dodaj(a, b) = {
     zwróć a + b;
 }
 

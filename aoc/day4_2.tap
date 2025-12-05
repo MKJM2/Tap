@@ -1,0 +1,125 @@
+
+get_file_content(): string = {
+    // `args` is a built-in injected into global env by interpreter runtime
+    file = open(args.get(0), "r");
+    content: string = file.read();
+    file.close();
+    content
+}
+
+parse_line(line: string): [int] = {
+    mut digits: [int] = [];
+    chars = line.split("");
+    for ch in chars {
+        if (ch == "") {
+            continue;
+        }
+
+        if (ch == ".") {
+            digits.push(0);
+        } else {
+            digits.push(1);
+        }
+    }
+    digits
+}
+
+// Parse all lines into a list of battery banks
+get_lines(content: string) = {
+    mut lines = [];
+    lines = content.split("\n");
+
+    mut result = [];
+    for line in lines {
+        trimmed = line.trim();
+        if (trimmed.length() > 0) {
+            line = parse_line(trimmed);
+            result.push(line);  // TODO: fix in-place push()
+        }
+    }
+
+    result
+}
+
+is_valid(x: int, y: int, m: int, n: int): bool = {
+    return x >= 0 && x < m && y >= 0 && y < n;
+}
+
+can_access(x: int, y: int, positions: [[int]]): bool = {
+    m = positions.length();
+    n = positions[0].length();
+    if (!is_valid(x, y, m, n)) {
+        return false;
+    }
+
+    mut count = 0;
+    for dx in [-1, 0, 1] {
+        for dy in [-1, 0, 1] {
+            if (dx == 0 && dy == 0) {
+                continue;
+            }
+            nx = x + dx;
+            ny = y + dy;
+            if (!is_valid(nx, ny, m, n)) {
+                continue;
+            }
+            if (is_valid(nx, ny, m, n) && positions[nx][ny] == 1) { // TODO: Fix and short-circuiting
+                count += 1;
+                if (count >= 4) {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+solve(): int = {
+    content = get_file_content();
+    mut lines = get_lines(content);
+
+    mut res = 0;
+
+    pass(grid: [[int]]): [[int]] = {
+        mut to_remove = [];
+        m = grid.length();
+        n = grid[0].length();
+        for i in 0..<m {
+            for j in 0..<n {
+                if (grid[i][j] == 0) {
+                    continue;
+                }
+                // Pass grid to can_access
+                if (can_access(i, j, grid)) {
+                    to_remove.push([i, j]);
+                }
+            }
+        }
+        to_remove
+    }
+
+    print("=====");
+
+    while (true) {
+        to_remove = pass(lines);
+
+        removed = to_remove.length();
+        print(removed);
+
+        if (removed == 0) {
+            break;
+        }
+
+        // Update the 'lines' variable in this scope
+        for pos in to_remove {
+            lines[pos[0]][pos[1]] = 0;
+        }
+
+        res += removed;
+    }
+
+    print("-----");
+    print(res);
+}
+
+solve();

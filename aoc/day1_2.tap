@@ -1,0 +1,82 @@
+// Example input file: "L68\nL30\nR48\nL5\nR60\nL55\nL1\nL99\nR14\nL82"
+get_file_content(): string = {
+    // `args` is a built-in injected into global env by interpreter runtime
+    file = open(args.get(0), "r");
+    content: string = file.read();
+    file.close();
+    content
+}
+
+// Parse a line like "R60" or "L30" into a turn value (int)
+// R becomes positive, L becomes negative
+parse_turn(line: string): int = {
+    len = line.length();
+    if (len == 0) {
+        return 0;
+    }
+    direction = line.char_at(0);
+    value_str = line.substring(1, len - 1);
+    value = value_str.parse_int();
+
+    if (direction == "L") {
+        -value
+    } else {
+        value
+    }
+}
+
+// Parse all lines into a list of turns
+get_turns(content: string): [int] = {
+    lines = content.split("\n");
+    mut turns: [int] = [];
+
+    for line in lines {
+        trimmed = line.trim();
+        if (trimmed.length() > 0) {
+            turn = parse_turn(line);
+            turns = turns.push(turn);
+        }
+    }
+    turns
+}
+
+solve(): int = {
+    content = get_file_content();
+    turns = get_turns(content);
+
+    mut res = 0;
+    mut dial = 50;
+
+    for turn in turns {
+        mut distance = turn;
+        mut sign = 1;
+        if (turn < 0) {
+            distance = -turn;
+            sign = -1;
+        }
+
+        // Add all the crosses due to full 360deg rotations
+        res += distance / 100;
+
+        // Check for a cross due to remaining part of a full turn
+        remainder = distance % 100;
+        if (turn > 0) { // Right turn
+            if (dial + remainder >= 100) {
+                res += 1;
+            }
+        } else {    // Left turn
+            if (dial > 0 && dial - remainder <= 0) {
+                res += 1;
+            }
+        }
+
+        // Update dial's position to its end position
+        // (we can skip full turns and only use the remainder)
+        dial = dial + (remainder * sign);
+        dial = (dial % 100 + 100) % 100; // Keep dial in [0, 99]
+    }
+
+    print(res);
+}
+
+solve();

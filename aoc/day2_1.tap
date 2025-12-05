@@ -1,0 +1,91 @@
+get_file_content(): string = {
+    // `args` is a built-in injected into global env by interpreter runtime
+    file = open(args.get(0), "r");
+    content: string = file.read();
+    file.close();
+    content
+}
+
+type Range = {
+    start: int,
+    end: int
+};
+
+parse_range(range: string) : Range = {
+    parts = range.split("-");
+    if (parts.length() != 2) {
+        return None;
+    }
+    start = parts[0].parse_int();
+    end = parts[1].parse_int();
+    range = {start: start, end: end};
+    range
+}
+
+// Parse input into a list of Ranges
+get_ranges(content: string): [Range] = {
+    range_strs: [string] = content.split(",");
+    mut ranges: [Range] = [];
+
+    for range_str in range_strs {
+        range = parse_range(range_str);
+        ranges = ranges.push(range);
+    }
+    ranges
+}
+
+find_invalid(r: Range) : [int] = {
+    // Prune ranges where no invalid IDs can exist
+    if (r.start.to_string().length() % 2 != 0 && r.end.to_string().length() % 2 != 0) {
+        if (r.start.to_string().length() == r.end.to_string().length()) {
+            return [];
+        }
+    }
+    mut res: [int] = [];
+
+    mut i = 0;
+    while (r.start + i <= r.end) {
+        id = r.start + i;
+
+        id_str = id.to_string();
+        n: int = id_str.length();
+        if (n % 2 != 0) {
+            i += 1;
+            continue;
+        }
+
+        half = n / 2;
+        left_substr = id_str.substring(0, half);
+        right_substr = id_str.substring(half, n - 1);
+        if (left_substr == right_substr) {
+            res = res.push(id);
+        }
+
+        i += 1;
+    }
+    res
+}
+
+solve(): int = {
+    content = get_file_content();
+    ranges: [Range] = get_ranges(content);
+
+    mut res : [int] = [];
+    for range in ranges {
+        invalid = find_invalid(range);
+        res += invalid;
+        print("Found invalid IDs in range ");
+        print(range);
+        print(invalid.length());
+        print(" ");
+    }
+    print(res);
+
+    mut sum = 0;
+    for id in res {
+        sum += id;
+    }
+    print(sum)
+}
+
+solve();
