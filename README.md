@@ -8,24 +8,21 @@ The short term goal is to solve all Advent of Code problems using Tap. There is
 no long term goal. The purpose of this project was and remains education and fun.
 
 ## Current state of affairs:
-- Rust / C++ inspired syntax
-- tree walking interpreter
+- **bilingual keywords** (English + Polish aliases for all keywords) 🇵🇱
+- a slow tree walking interpreter
 - rudimentary runtime type checking
 - hand rolled lexer & parser
-- basic closure & lexical scoping
-- **bilingual keywords** (English + Polish aliases for all keywords) 🇵🇱
+- basic closures & lexical scoping
 
 ## but... why?
 Because I can. Also it's fun.
 Lexing and parsing are already solved problems (see the excellent [logos](https://docs.rs/logos/latest/logos/) crate for creating lexers,
 or [nom](https://docs.rs/nom/latest/nom/) creating parsers. People older to the trade are surely familiar with the [GNU Bison](https://www.gnu.org/software/bison/) parser _generator_).
 
-
 ## Planned features
 - type inference
 - emitting byte code + a VM implementation
-- VM
-- potentially experimenting into JIT compilation (but nothing too serious, I have a life)
+- potentially looking into JIT compilation (but nothing too serious, I have a life)
 - a faster, state machine based lexer (DFA)
     - might require edits to the Tap grammar
     - perfect hashing for keywords?

@@ -796,6 +796,46 @@ fn test_parse_nested_if_expression() {
 }
 
 #[test]
+fn test_parse_nested_if_expression_no_parenthesis() {
+    let source = "
+    result = if x > 0 {
+        if y > 0 {
+            1
+        } else {
+            -1
+        }
+    } else {
+        0
+    };
+    ";
+    let program = parse_test_source(source);
+
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        TopStatement::LetStmt(LetStatement::Variable(bind)) => {
+            assert_eq!(bind.name, "result");
+            match &bind.value {
+                Expression::If(if_expr) => {
+                    assert!(if_expr.else_branch.is_some());
+                    match &if_expr.then_branch.final_expression {
+                        Some(expr) => match &**expr {
+                            Expression::If(_) => {
+                                // Nested if expression is present.
+                            }
+                            _ => panic!("Expected nested if expression"),
+                        },
+                        None => panic!("Expected final expression in then branch"),
+                    }
+                }
+                _ => panic!("Expected if expression"),
+            }
+        }
+        _ => panic!("Expected variable binding"),
+    }
+}
+
+#[test]
 fn test_parse_function_call_with_arguments() {
     let source = "add(1, 2);";
     let program = parse_test_source(source);

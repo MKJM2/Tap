@@ -74,44 +74,47 @@ can_access(x: int, y: int, positions: [[int]]): bool = {
     true
 }
 
-
 solve(): int = {
     content = get_file_content();
-    lines = get_lines(content);
+    mut lines = get_lines(content);
 
     mut res = 0;
 
-    pass(): int = {
+    pass(grid: [[int]]): [[int]] = {
         mut to_remove = [];
-        m = lines.length();
-        n = lines[0].length();
+        m = grid.length();
+        n = grid[0].length();
         for i in 0..<m {
             for j in 0..<n {
-                if (lines[i][j] == 0) {
+                if (grid[i][j] == 0) {
                     continue;
                 }
-                if (can_access(i, j, lines)) {
+                // Pass grid to can_access
+                if (can_access(i, j, grid)) {
                     to_remove.push([i, j]);
                 }
             }
         }
-        for pos in to_remove {
-            print(lines[pos[0]][pos[1]]);
-            print(lines[pos[0]][pos[1]]);
-            lines[pos[0]][pos[1]] = 0;
-            print("done");
-        }
-        to_remove.length()
+        to_remove
     }
 
     print("=====");
 
     while (true) {
-        removed = pass();
+        to_remove = pass(lines);
+
+        removed = to_remove.length();
         print(removed);
+
         if (removed == 0) {
             break;
         }
+
+        // Update the 'lines' variable in this scope
+        for pos in to_remove {
+            lines[pos[0]][pos[1]] = 0;
+        }
+
         res += removed;
     }
 

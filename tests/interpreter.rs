@@ -4,21 +4,14 @@ use tap::lexer::Lexer;
 use tap::parser::Parser;
 use tap::utils::pretty_print_tokens;
 
-// Assume Program is defined as part of tap::parser module
-// If Program is not directly accessible, we might need a type alias or to
-// infer its path based on where `Parser::parse_program` returns it.
-// For now, let's assume it's `tap::ast::Program` or similar.
-// If not, replace `Program` with the actual type.
-type AstProgram = tap::ast::Program; // Adjust this if `Program` is in a different module or named differently
+type AstProgram = tap::ast::Program;
 
-// A new struct to hold both the interpretation result and the AST
 struct InterpretOutput {
     pub result: Result<Option<Value>, RuntimeError>,
-    pub ast: Option<AstProgram>, // Store the AST here, it might be None if parsing failed
-    pub source: String,          // Store the source for better error messages
+    pub ast: Option<AstProgram>,
+    pub source: String,
 }
 
-// Helper function to interpret a source string and return the result along with the AST
 fn interpret_source_with_ast(source: &str) -> InterpretOutput {
     let mut reporter = Reporter::new();
     let tokens = Lexer::new(source, &mut reporter)
@@ -47,7 +40,7 @@ fn interpret_source_with_ast(source: &str) -> InterpretOutput {
             source,
             pretty_print_tokens(&tokens),
             reporter.diagnostics,
-            program_result // This will print Result::Ok(Program) or Result::Err(Diagnostic)
+            program_result
         );
         panic!("Parsing failed with reporter errors.");
     }
@@ -1160,6 +1153,28 @@ mod interpreter_tests {
     }
 
     #[test]
+    fn test_snippet_match_day_name_no_pipe() {
+        let source = r#"
+            get_day_name(day_num: int): string = {
+                match (day_num) {
+                    1 => "Monday",
+                    2 => "Tuesday",
+                    3 => "Wednesday",
+                    4 => "Thursday",
+                    5 => "Friday",
+                    6 => "Saturday",
+                    _ => "Sunday"
+                }
+            };
+            get_day_name(7);
+        "#;
+        assert_interpret_output_and_dump_ast!(
+            source,
+            Ok(Some(Value::String("Sunday".to_string())))
+        );
+    }
+
+    #[test]
     fn test_snippet_calculate_nth_power_iterative() {
         let source = r#"
             power(base, exponent: int) = {
@@ -1466,5 +1481,300 @@ mod interpreter_tests {
         "#;
 
         assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Integer(185))));
+    }
+
+    #[test]
+    fn test_aoc_2025_day1_part1() {
+        let source = r#"
+        get_file_content(): string = {
+            "R50\nR10\nL150\nR20\nL25\nR100\nL55"
+        }
+
+        // Parse a line like "R60" or "L30" into a turn value
+        // R becomes positive, L becomes negative
+        parse_turn(line: string): int = {
+            direction = line.char_at(0);
+            len = line.length();
+            value_str = line.substring(1, len - 1);
+            value = value_str.parse_int();
+
+            if (direction == "L") {
+                -value
+            } else {
+                value
+            }
+        }
+
+        // Parse all lines into a list of turns
+        get_turns(content: string): [int] = {
+            lines = content.split("\n");
+            mut turns: [int] = [];
+
+            for line in lines {
+                trimmed = line.trim();
+                if (trimmed.length() > 0) {
+                    turn = parse_turn(trimmed);
+                    turns.push(turn);
+                }
+            }
+
+            turns
+        }
+
+        solve(): int = {
+            content = get_file_content();
+            turns = get_turns(content);
+
+            mut res = 0;
+            mut dial = 50;
+
+            for turn in turns {
+                dial += turn;
+                dial %= 100;
+
+                // Check if dial reached zero
+                if (dial == 0) {
+                    res = res + 1;
+                }
+            }
+
+            // Return the count of times dial reached zero
+            res
+        }
+
+        solve()
+        "#;
+        // The dial is set to 0 after first move, and then again after the last move
+        assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Integer(2))));
+    }
+
+    #[test]
+    fn test_aoc_2025_day1_part2() {
+        let source = r#"
+            get_file_content(): string = {
+                "R50\nR10\nL150\nR20\nL25\nR100"
+            }
+
+            // Parse a line like "R60" or "L30" into a turn value (int)
+            // R becomes positive, L becomes negative
+            parse_turn(line: string): int = {
+                len = line.length();
+                if (len == 0) {
+                    return 0;
+                }
+                direction = line.char_at(0);
+                value_str = line.substring(1, len - 1);
+                value = value_str.parse_int();
+
+                if (direction == "L") {
+                    -value
+                } else {
+                    value
+                }
+            }
+
+            // Parse all lines into a list of turns
+            get_turns(content: string): [int] = {
+                lines = content.split("\n");
+                mut turns: [int] = [];
+
+                for line in lines {
+                    trimmed = line.trim();
+                    if (trimmed.length() > 0) {
+                        turn = parse_turn(line);
+                        turns.push(turn);
+                    }
+                }
+                turns
+            }
+
+            solve(): int = {
+                content = get_file_content();
+                turns = get_turns(content);
+
+                mut res = 0;
+                mut dial = 50;
+
+                for turn in turns {
+                    mut distance = turn;
+                    mut sign = 1;
+                    if (turn < 0) {
+                        distance = -turn;
+                        sign = -1;
+                    }
+
+                    // Add all the crosses due to full 360deg rotations
+                    res += distance / 100;
+
+                    // Check for a cross due to remaining part of a full turn
+                    remainder = distance % 100;
+                    if (turn > 0) { // Right turn
+                        if (dial + remainder >= 100) {
+                            res += 1;
+                        }
+                    } else {    // Left turn
+                        if (dial > 0 && dial - remainder <= 0) {
+                            res += 1;
+                        }
+                    }
+
+                    // Update dial's position to its end position
+                    // (we can skip full turns and only use the remainder)
+                    dial += (remainder * sign);
+                    dial = (dial % 100 + 100) % 100; // Keep dial in [0, 99]
+                }
+
+                res
+            }
+
+            solve();
+        "#;
+
+        assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Integer(4))));
+    }
+
+    #[test]
+    fn test_aoc_2025_day4_part2() {
+        // Test that closures capture variables correctly (by reference)
+        let source = r#"
+            get_file_content(): string = {
+                "@.@.@@@.@.\n.@@@@@@@@.\n@.@@@.@@@@\n.@.@.@.@@@\n.@@@@@@@.@\n@@.@@@@.@@\n@.@@@@..@.\n@@@@@.@.@@\n@@@.@.@.@@\n..@@.@@@@.\n"
+            }
+
+            parse_line(line: string): [int] = {
+                mut digits: [int] = [];
+                chars = line.split("");
+                for ch in chars {
+                    if ch == "" {
+                        continue;
+                    }
+                    if ch == "." {
+                        digits.push(0);
+                    } else {
+                        digits.push(1);
+                    }
+                }
+                digits
+            }
+
+            // Parse all lines into a list of battery banks
+            get_lines(content: string) = {
+                mut lines = [];
+                lines = content.split("\n");
+
+                mut result = [];
+                for line in lines {
+                    trimmed = line.trim();
+                    if trimmed.length() > 0 {
+                        line = parse_line(trimmed);
+                        result.push(line);
+                    }
+                }
+
+                result
+            }
+
+            is_valid(x: int, y: int, m: int, n: int): bool = {
+                return x >= 0 && x < m && y >= 0 && y < n;
+            }
+
+            can_access(x: int, y: int, positions: [[int]]): bool = {
+                m = positions.length();
+                n = positions[0].length();
+                if (!is_valid(x, y, m, n)) {
+                    return false;
+                }
+
+                mut count = 0;
+                for dx in [-1, 0, 1] {
+                    for dy in [-1, 0, 1] {
+                        if dx == 0 && dy == 0 {
+                            continue;
+                        }
+                        nx = x + dx;
+                        ny = y + dy;
+                        if !is_valid(nx, ny, m, n) {
+                            continue;
+                        }
+                        if is_valid(nx, ny, m, n) && positions[nx][ny] == 1 { // TODO: Fix `&&` short-circuiting
+                            count += 1;
+                            if (count >= 4) {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                true
+            }
+
+            solve(): int = {
+                content = get_file_content();
+                mut lines = get_lines(content);
+
+                mut res = 0;
+
+                pass(grid: [[int]]): [[int]] = {
+                    mut to_remove = [];
+                    m = grid.length();
+                    n = grid[0].length();
+                    for i in 0..<m {
+                        for j in 0..<n {
+                            if grid[i][j] == 0 {
+                                continue;
+                            }
+                            // Pass grid to can_access
+                            if (can_access(i, j, grid)) {
+                                to_remove.push([i, j]);
+                            }
+                        }
+                    }
+                    to_remove
+                }
+                while (true) {
+                    to_remove = pass(lines);
+                    removed = to_remove.length();
+                    if (removed == 0) {
+                        break;
+                    }
+                    for pos in to_remove {
+                        lines[pos[0]][pos[1]] = 0;
+                    }
+                    res += removed;
+                }
+                res
+            }
+
+            solve();
+        "#;
+        assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Integer(43))));
+    }
+
+    #[test]
+    fn test_aoc_2015_day1_part1() {
+        // Test that closures capture variables correctly
+        let source = r#"
+            solve(): int = {
+
+                content: string = ")())())";
+                chars = content.split("");
+                mut floor = 0;
+
+                step(ch) = {
+                    if ch == "(" {
+                        floor += 1
+                    } else if ch == ")" {
+                        floor -= 1
+                    }
+                }
+
+                for ch in chars {
+                    step(ch);
+                }
+
+                floor
+            };
+            solve();
+        "#;
+        assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Integer(-3))));
     }
 }

@@ -490,6 +490,7 @@ pub enum BinaryOperator {
     SubtractAssign,
     MultiplyAssign,
     DivideAssign,
+    ModuloAssign,
 }
 
 /// Represents a unary operator.
@@ -535,6 +536,7 @@ impl fmt::Display for BinaryOperator {
             BinaryOperator::SubtractAssign => write!(f, "-="),
             BinaryOperator::MultiplyAssign => write!(f, "*="),
             BinaryOperator::DivideAssign => write!(f, "/="),
+            BinaryOperator::ModuloAssign => write!(f, "%="),
         }
     }
 }

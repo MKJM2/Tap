@@ -308,6 +308,7 @@ impl Interpreter {
                         | BinaryOperator::SubtractAssign
                         | BinaryOperator::MultiplyAssign
                         | BinaryOperator::DivideAssign
+                        | BinaryOperator::ModuloAssign
                 ) {
                     if let Expression::Primary(PrimaryExpression::Identifier(name, _)) =
                         &*binary_expr.left
@@ -330,6 +331,7 @@ impl Interpreter {
                             BinaryOperator::SubtractAssign => BinaryOperator::Subtract,
                             BinaryOperator::MultiplyAssign => BinaryOperator::Multiply,
                             BinaryOperator::DivideAssign => BinaryOperator::Divide,
+                            BinaryOperator::ModuloAssign => BinaryOperator::Modulo,
                             _ => unreachable!(),
                         };
 
@@ -343,46 +345,17 @@ impl Interpreter {
                         if let Expression::Primary(PrimaryExpression::Identifier(var_name, _)) =
                             &*postfix_expr.primary
                         {
-                            if postfix_expr.operators.len() == 1 {
-                                if let PostfixOperator::FieldAccess {
-                                    name: field_name, ..
-                                } = &postfix_expr.operators[0]
-                                {
-                                    let record =
-                                        self.env.get(var_name).ok_or(RuntimeError::Type(
-                                            format!("Undefined variable: {}", var_name),
-                                        ))?;
+                            // Handle nested list/field assignment
+                            if !postfix_expr.operators.is_empty() {
+                                let value = self.eval_expr(&binary_expr.right)?;
+                                let mut root = self.env.get(var_name).ok_or(RuntimeError::Type(
+                                    format!("Undefined variable: {}", var_name),
+                                ))?;
 
-                                    if let Value::Record(mut fields) = record {
-                                        let value = self.eval_expr(&binary_expr.right)?;
-                                        fields.insert(field_name.clone(), value);
-                                        self.env.set(var_name, Value::Record(fields));
-                                        return Ok(Value::Unit);
-                                    }
-                                }
-                                if let PostfixOperator::ListAccess { index, .. } =
-                                    &postfix_expr.operators[0]
-                                {
-                                    let list = self.env.get(var_name).ok_or(RuntimeError::Type(
-                                        format!("Undefined variable: {}", var_name),
-                                    ))?;
-
-                                    if let Value::List(mut elements) = list {
-                                        let idx_val = self.eval_expr(index)?;
-                                        if let Value::Integer(idx) = idx_val {
-                                            if idx < 0 || idx as usize >= elements.len() {
-                                                return Err(RuntimeError::Type(format!(
-                                                    "Index {} out of bounds",
-                                                    idx
-                                                )));
-                                            }
-                                            let value = self.eval_expr(&binary_expr.right)?;
-                                            elements[idx as usize] = value;
-                                            self.env.set(var_name, Value::List(elements));
-                                            return Ok(Value::Unit);
-                                        }
-                                    }
-                                }
+                                root =
+                                    self.update_nested_value(root, &postfix_expr.operators, value)?;
+                                self.env.set(var_name, root);
+                                return Ok(Value::Unit);
                             }
                         }
                     }
@@ -412,6 +385,59 @@ impl Interpreter {
             }
             Expression::Postfix(postfix_expr) => self.eval_postfix_expression(postfix_expr),
             Expression::Range(range_expr) => self.eval_range_expression(range_expr),
+        }
+    }
+
+    fn update_nested_value(
+        &mut self,
+        current: Value,
+        operators: &[PostfixOperator],
+        new_value: Value,
+    ) -> Result<Value, RuntimeError> {
+        if operators.is_empty() {
+            return Ok(new_value);
+        }
+
+        match &operators[0] {
+            PostfixOperator::ListAccess { index, .. } => {
+                if let Value::List(mut elements) = current {
+                    let idx_val = self.eval_expr(index)?;
+                    if let Value::Integer(idx) = idx_val {
+                        if idx < 0 || idx as usize >= elements.len() {
+                            return Err(RuntimeError::Type(format!("Index {} out of bounds", idx)));
+                        }
+
+                        let idx = idx as usize;
+                        // Recursively update nested value
+                        elements[idx] = self.update_nested_value(
+                            elements[idx].clone(),
+                            &operators[1..],
+                            new_value,
+                        )?;
+
+                        return Ok(Value::List(elements));
+                    }
+                    Err(RuntimeError::Type("List index must be integer".into()))
+                } else {
+                    Err(RuntimeError::Type("Cannot index non-list value".into()))
+                }
+            }
+            PostfixOperator::FieldAccess { name, .. } => {
+                if let Value::Record(mut fields) = current {
+                    // Recursively update nested value
+                    let old_value = fields.get(name).cloned().unwrap_or(Value::Unit);
+                    fields.insert(
+                        name.clone(),
+                        self.update_nested_value(old_value, &operators[1..], new_value)?,
+                    );
+                    Ok(Value::Record(fields))
+                } else {
+                    Err(RuntimeError::Type(
+                        "Cannot access field on non-record".into(),
+                    ))
+                }
+            }
+            _ => Err(RuntimeError::Type("Unsupported nested assignment".into())),
         }
     }
 

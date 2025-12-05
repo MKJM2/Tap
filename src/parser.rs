@@ -871,6 +871,7 @@ impl<'a> Parser<'a> {
             TokenType::MinusEqual,
             TokenType::StarEqual,
             TokenType::SlashEqual,
+            TokenType::PercentEqual,
         ]) {
             let op_token = self.previous().clone();
             let right = self.parse_assignment_expression()?;
@@ -881,6 +882,7 @@ impl<'a> Parser<'a> {
                 TokenType::MinusEqual => BinaryOperator::SubtractAssign,
                 TokenType::StarEqual => BinaryOperator::MultiplyAssign,
                 TokenType::SlashEqual => BinaryOperator::DivideAssign,
+                TokenType::PercentEqual => BinaryOperator::ModuloAssign,
                 _ => unreachable!(),
             };
             return Ok(Expression::Binary(BinaryExpression {
@@ -1294,15 +1296,24 @@ impl<'a> Parser<'a> {
             .consume(TokenType::KeywordIf, "Expected 'if' keyword.", None)?
             .span;
 
-        self.consume(TokenType::OpenParen, "Expected '(' after 'if'.", None)?;
+        let left_paren = self.maybe_consume(&[TokenType::OpenParen]);
 
         let condition = self.parse_expression()?;
 
-        self.consume(
-            TokenType::CloseParen,
-            "Expected ')' after if condition.",
-            None,
-        )?;
+        if left_paren {
+            // If a left parenthesis was consumed, we expect a right parenthesis
+            self.consume(
+                TokenType::CloseParen,
+                "Expected ')' after if condition.",
+                None,
+            )?;
+        } else {
+            // If no left parenthesis, we should NOT have a right parenthesis
+            if self.maybe_consume(&[TokenType::CloseParen]) {
+                let msg = "Unexpected ')' after if condition.".to_string();
+                return Err(self.error(self.previous().span, msg, None));
+            }
+        }
 
         let then_branch = self.parse_block()?;
 
@@ -1359,7 +1370,10 @@ impl<'a> Parser<'a> {
         while !self.check(TokenType::CloseBrace) && !self.is_at_end() {
             let _ctx = self.context("match arm");
 
-            self.consume(TokenType::Pipe, "Expected '|' before match arm.", None)?;
+            // TODO: playing around with the grammar
+            // self.consume(TokenType::Pipe, "Expected '|' before match arm.", None)?;
+            // FOR NOW, make the '|' optional
+            self.maybe_consume(&[TokenType::Pipe]);
 
             let pattern = self.parse_pattern()?;
 
