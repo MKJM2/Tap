@@ -1,4 +1,5 @@
 use crate::interpreter::{Interpreter, MapKey, RuntimeError, Value};
+use crate::types::Type;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 
@@ -592,5 +593,193 @@ pub fn eval_method(
             method,
             std::mem::discriminant(&receiver)
         ))),
+    }
+}
+
+/// Returns the type signature of a built-in method for a given receiver type.
+/// Returns None if the method doesn't exist for that type.
+///
+/// For zero-argument methods (like `length`), returns the direct result type.
+/// For methods with arguments, returns a Function type.
+pub fn get_builtin_method_type(receiver_ty: &Type, method_name: &str) -> Option<Type> {
+    match receiver_ty {
+        Type::List(inner) => get_list_method_type(inner, method_name),
+        Type::Map(key, value) => get_map_method_type(key, value, method_name),
+        Type::String => get_string_method_type(method_name),
+        Type::Int => get_int_method_type(method_name),
+        Type::Float => get_float_method_type(method_name),
+        Type::Bool => get_bool_method_type(method_name),
+        // File and Args are more complex - we'll handle them specially
+        _ => None,
+    }
+}
+
+fn get_list_method_type(inner: &Type, method: &str) -> Option<Type> {
+    match method {
+        "push" | "append" => Some(Type::Function(
+            vec![inner.clone()],
+            Box::new(Type::List(Box::new(inner.clone()))),
+        )),
+        "pop" => Some(Type::Function(vec![], Box::new(inner.clone()))),
+        "remove" => Some(Type::Function(vec![Type::Int], Box::new(inner.clone()))),
+        "insert" => Some(Type::Function(
+            vec![Type::Int, inner.clone()],
+            Box::new(Type::List(Box::new(inner.clone()))),
+        )),
+        "reverse" => Some(Type::Function(
+            vec![],
+            Box::new(Type::List(Box::new(inner.clone()))),
+        )),
+        "sort" => Some(Type::Function(
+            vec![],
+            Box::new(Type::List(Box::new(inner.clone()))),
+        )),
+        "length" => Some(Type::Int),
+        "contains" => Some(Type::Function(vec![inner.clone()], Box::new(Type::Bool))),
+        "index_of" => Some(Type::Function(vec![inner.clone()], Box::new(Type::Int))),
+        "slice" => Some(Type::Function(
+            vec![Type::Int, Type::Int],
+            Box::new(Type::List(Box::new(inner.clone()))),
+        )),
+        "join" => {
+            // join only works on List<String>
+            if matches!(inner, Type::String) {
+                Some(Type::Function(vec![Type::String], Box::new(Type::String)))
+            } else {
+                None
+            }
+        }
+        "map" => {
+            // map: (T -> U) -> List<U>
+            // For simplicity, we'll use Any for the result type
+            Some(Type::Function(
+                vec![Type::Function(vec![inner.clone()], Box::new(Type::Any))],
+                Box::new(Type::List(Box::new(Type::Any))),
+            ))
+        }
+        "filter" => {
+            // filter: (T -> Bool) -> List<T>
+            Some(Type::Function(
+                vec![Type::Function(vec![inner.clone()], Box::new(Type::Bool))],
+                Box::new(Type::List(Box::new(inner.clone()))),
+            ))
+        }
+        "first" | "last" => Some(Type::Function(vec![], Box::new(inner.clone()))),
+        "is_empty" => Some(Type::Bool),
+        _ => None,
+    }
+}
+
+fn get_map_method_type(key_ty: &Type, val_ty: &Type, method: &str) -> Option<Type> {
+    match method {
+        "insert" => Some(Type::Function(
+            vec![key_ty.clone(), val_ty.clone()],
+            Box::new(Type::Map(
+                Box::new(key_ty.clone()),
+                Box::new(val_ty.clone()),
+            )),
+        )),
+        "get" => Some(Type::Function(
+            vec![key_ty.clone()],
+            Box::new(val_ty.clone()),
+        )),
+        "has" | "contains" => Some(Type::Function(vec![key_ty.clone()], Box::new(Type::Bool))),
+        "remove" => Some(Type::Function(
+            vec![key_ty.clone()],
+            Box::new(val_ty.clone()),
+        )),
+        "length" | "size" => Some(Type::Int),
+        "is_empty" => Some(Type::Bool),
+        "clear" => Some(Type::Function(
+            vec![],
+            Box::new(Type::Map(
+                Box::new(key_ty.clone()),
+                Box::new(val_ty.clone()),
+            )),
+        )),
+        "keys" => Some(Type::Function(
+            vec![],
+            Box::new(Type::List(Box::new(key_ty.clone()))),
+        )),
+        "values" => Some(Type::Function(
+            vec![],
+            Box::new(Type::List(Box::new(val_ty.clone()))),
+        )),
+        "entries" => {
+            let entry_record = Type::Record(HashMap::from([
+                ("key".to_string(), key_ty.clone()),
+                ("value".to_string(), val_ty.clone()),
+            ]));
+            Some(Type::Function(
+                vec![],
+                Box::new(Type::List(Box::new(entry_record))),
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn get_string_method_type(method: &str) -> Option<Type> {
+    match method {
+        "length" => Some(Type::Int),
+        "split" => Some(Type::Function(
+            vec![Type::String],
+            Box::new(Type::List(Box::new(Type::String))),
+        )),
+        "parse_int" => Some(Type::Function(vec![], Box::new(Type::Int))),
+        "parse_float" => Some(Type::Function(vec![], Box::new(Type::Float))),
+        "trim" | "trim_start" | "trim_end" | "to_lower" | "to_upper" => {
+            Some(Type::Function(vec![], Box::new(Type::String)))
+        }
+        "contains" | "starts_with" | "ends_with" => {
+            Some(Type::Function(vec![Type::String], Box::new(Type::Bool)))
+        }
+        "replace" => Some(Type::Function(
+            vec![Type::String, Type::String],
+            Box::new(Type::String),
+        )),
+        "char_at" => Some(Type::Function(vec![Type::Int], Box::new(Type::String))),
+        "chars" => Some(Type::Function(
+            vec![],
+            Box::new(Type::List(Box::new(Type::String))),
+        )),
+        "index_of" => Some(Type::Function(vec![Type::String], Box::new(Type::Int))),
+        "substring" => Some(Type::Function(
+            vec![Type::Int, Type::Int],
+            Box::new(Type::String),
+        )),
+        _ => None,
+    }
+}
+
+fn get_int_method_type(method: &str) -> Option<Type> {
+    match method {
+        "to_float" => Some(Type::Function(vec![], Box::new(Type::Float))),
+        "to_string" => Some(Type::Function(vec![], Box::new(Type::String))),
+        "abs" => Some(Type::Function(vec![], Box::new(Type::Int))),
+        "pow" => Some(Type::Function(vec![Type::Int], Box::new(Type::Int))),
+        _ => None,
+    }
+}
+
+fn get_float_method_type(method: &str) -> Option<Type> {
+    match method {
+        "to_string" => Some(Type::Function(vec![], Box::new(Type::String))),
+        "to_int" => Some(Type::Function(vec![], Box::new(Type::Int))),
+        "abs" | "floor" | "ceil" | "round" | "sqrt" => {
+            Some(Type::Function(vec![], Box::new(Type::Float)))
+        }
+        "pow" => {
+            // Can take Int or Float
+            Some(Type::Function(vec![Type::Any], Box::new(Type::Float)))
+        }
+        _ => None,
+    }
+}
+
+fn get_bool_method_type(method: &str) -> Option<Type> {
+    match method {
+        "to_string" => Some(Type::Function(vec![], Box::new(Type::String))),
+        _ => None,
     }
 }
