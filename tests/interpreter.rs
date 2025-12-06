@@ -560,6 +560,23 @@ mod interpreter_tests {
     }
 
     #[test]
+    fn test_map_calls_lambda_on_list_elems() {
+        let source = "
+            l = [1, 2, 3];
+            s: [string] = l.map((x) => { x.to_string() });
+            s
+        ";
+        assert_interpret_output_and_dump_ast!(
+            source,
+            Ok(Some(Value::List(vec![
+                Value::String("1".into()),
+                Value::String("2".into()),
+                Value::String("3".into()),
+            ])))
+        );
+    }
+
+    #[test]
     fn test_interpret_record_literal_and_access() {
         let source = "
             p = { x: 10, y: 20 };

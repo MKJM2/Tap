@@ -835,31 +835,74 @@ impl<'a> Parser<'a> {
         })
     }
 
+    // fn parse_expression(&mut self) -> Result<Expression, ParseError> {
+    //     let _ctx = self.context("expression");
+
+    //     // Check for lambda expression
+    //     if self.check(TokenType::OpenParen) {
+    //         if self.peek_next().token_type == TokenType::CloseParen {
+    //             if self
+    //                 .tokens
+    //                 .get(self.current + 2)
+    //                 .map_or(false, |t| t.token_type == TokenType::FatArrow)
+    //             {
+    //                 return self.parse_function_expression();
+    //             }
+    //         } else if self.peek_next().token_type.is_identifier() {
+    //             if self
+    //                 .tokens
+    //                 .get(self.current + 2)
+    //                 .map_or(false, |t| t.token_type == TokenType::Colon)
+    //             {
+    //                 return self.parse_function_expression();
+    //             }
+    //         }
+    //     }
+
+    //     self.parse_assignment_expression()
+    // }
+
     fn parse_expression(&mut self) -> Result<Expression, ParseError> {
         let _ctx = self.context("expression");
 
-        // Check for lambda expression
-        if self.check(TokenType::OpenParen) {
-            if self.peek_next().token_type == TokenType::CloseParen {
-                if self
-                    .tokens
-                    .get(self.current + 2)
-                    .map_or(false, |t| t.token_type == TokenType::FatArrow)
-                {
-                    return self.parse_function_expression();
-                }
-            } else if self.peek_next().token_type.is_identifier() {
-                if self
-                    .tokens
-                    .get(self.current + 2)
-                    .map_or(false, |t| t.token_type == TokenType::Colon)
-                {
-                    return self.parse_function_expression();
-                }
-            }
+        // Check for lambda expression using lookahead
+        if self.check(TokenType::OpenParen) && self.looks_like_lambda() {
+            return self.parse_function_expression();
         }
 
         self.parse_assignment_expression()
+    }
+
+    /// Lookahead to detect if current position starts a lambda expression
+    fn looks_like_lambda(&self) -> bool {
+        if !self.check(TokenType::OpenParen) {
+            return false;
+        }
+
+        let mut idx = self.current + 1; // Skip the opening paren
+        let mut depth = 1;
+
+        // Scan through the parameter list
+        while idx < self.tokens.len() && depth > 0 {
+            match &self.tokens[idx].token_type {
+                TokenType::OpenParen => depth += 1,
+                TokenType::CloseParen => {
+                    depth -= 1;
+                    if depth == 0 {
+                        // Found matching close paren
+                        // Check if next token is =>
+                        if idx + 1 < self.tokens.len() {
+                            return self.tokens[idx + 1].token_type == TokenType::FatArrow;
+                        }
+                        return false;
+                    }
+                }
+                _ => {}
+            }
+            idx += 1;
+        }
+
+        false
     }
 
     fn parse_assignment_expression(&mut self) -> Result<Expression, ParseError> {

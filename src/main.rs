@@ -195,6 +195,9 @@ fn execute_repl_line(
         ));
     }
 
+    // Optionally, type check if `--type-check` command line was specified
+    todo!("Type check");
+
     // Interpret
     match interpreter.interpret(&program) {
         Ok(Some(value)) => {
