@@ -1065,6 +1065,19 @@ impl<'a> Parser<'a> {
     fn parse_postfix_expression(&mut self) -> Result<Expression, ParseError> {
         let expr = self.parse_primary_expression()?;
 
+        // Don't parse postfix operators after brace-ending expressions
+        let expr_ends_with_brace = matches!(
+            expr,
+            Expression::If(_)
+                | Expression::While(_)
+                | Expression::For(_)
+                | Expression::Match(_)
+                | Expression::Block(_)
+        );
+        if expr_ends_with_brace {
+            return Ok(expr);
+        }
+
         let mut operators = Vec::new();
         while self.maybe_consume(&[
             TokenType::Dot,

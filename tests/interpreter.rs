@@ -422,6 +422,26 @@ mod interpreter_tests {
     }
 
     #[test]
+    fn test_function_returning_list_literal() {
+        let source = r#"
+                t() : [int] = {
+                    start = 0;
+                    end = 1;
+                    [start, end]
+                }
+
+                t();
+            "#;
+        assert_interpret_output_and_dump_ast!(
+            source,
+            Ok(Some(Value::List(vec![
+                Value::Integer(0),
+                Value::Integer(1)
+            ])))
+        );
+    }
+
+    #[test]
     fn test_interpret_if_else_if_expression() {
         let source = "
             val = if (false) { 1 } else if (true) { 2 } else { 3 };
@@ -463,6 +483,41 @@ mod interpreter_tests {
             };
             count;
         ";
+        assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Integer(2))));
+    }
+
+    #[test]
+    fn test_interpret_for_loop_break() {
+        let source = "
+            mut res = 0;
+            for i in [1, 2, 3, 4, 5] {
+                if (i == 3) {
+                    break;
+                };
+                res = res + i;
+            }
+            res;
+        ";
+        assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Integer(3))));
+    }
+
+    #[test]
+    fn test_interpret_for_loop_nested_break() {
+        // Should only break out of the inner loop, not both
+        let source = "
+                mut res = 0;
+                for i in [1, 2] {
+                    for j in [3, 4] {
+                        res = 1;
+                        if (i == 1 && j == 4) {
+                            break;
+                        }
+                        res = -1
+                    }
+                    res = 2;
+                }
+                res;
+            ";
         assert_interpret_output_and_dump_ast!(source, Ok(Some(Value::Integer(2))));
     }
 
@@ -1383,6 +1438,41 @@ mod interpreter_tests {
         let result = interpreter.interpret(&program);
 
         assert_eq!(result, Ok(Some(Value::Unit)));
+    }
+
+    #[test]
+    fn test_parse_list_literal_in_return() {
+        let source = r#"parse_range_line(line: string): [int] = {
+            mut start = -1;
+            mut end = -1;
+            chars = line.split("-");
+            for ch in chars {
+                if ch == "" {
+                    continue;
+                }
+                if (start == -1) {
+                    start = ch.parse_int();
+                } else {
+                    end = ch.parse_int();
+                }
+            }
+            // TODO: Fix returning array literal:
+            //       ❯ tap day5_1.tap test_input_day4.txt
+            // Error: Parse errors:
+            // Error at line 23, column 11 (program -> top-level statement -> function declaration -> block -> expression -> list index): Expected ']' after index. Found Comma instead.
+            //   |     [start, end]
+            //   |           ^
+            [start, end]
+        }
+        parse_range_line("123-456")
+        "#;
+        assert_interpret_output_and_dump_ast!(
+            source,
+            Ok(Some(Value::List(vec![
+                Value::Integer(123),
+                Value::Integer(456)
+            ])))
+        );
     }
 
     #[test]
