@@ -602,6 +602,11 @@ pub fn eval_method(
 /// For zero-argument methods (like `length`), returns the direct result type.
 /// For methods with arguments, returns a Function type.
 pub fn get_builtin_method_type(receiver_ty: &Type, method_name: &str) -> Option<Type> {
+    // Allow any method on Unknown/Any types - return Any
+    if matches!(receiver_ty, Type::Unknown | Type::Any) {
+        return Some(Type::Any);
+    }
+
     match receiver_ty {
         Type::List(inner) => get_list_method_type(inner, method_name),
         Type::Map(key, value) => get_map_method_type(key, value, method_name),
@@ -609,7 +614,6 @@ pub fn get_builtin_method_type(receiver_ty: &Type, method_name: &str) -> Option<
         Type::Int => get_int_method_type(method_name),
         Type::Float => get_float_method_type(method_name),
         Type::Bool => get_bool_method_type(method_name),
-        // File and Args are more complex - we'll handle them specially
         _ => None,
     }
 }
