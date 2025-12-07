@@ -835,33 +835,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    // fn parse_expression(&mut self) -> Result<Expression, ParseError> {
-    //     let _ctx = self.context("expression");
-
-    //     // Check for lambda expression
-    //     if self.check(TokenType::OpenParen) {
-    //         if self.peek_next().token_type == TokenType::CloseParen {
-    //             if self
-    //                 .tokens
-    //                 .get(self.current + 2)
-    //                 .map_or(false, |t| t.token_type == TokenType::FatArrow)
-    //             {
-    //                 return self.parse_function_expression();
-    //             }
-    //         } else if self.peek_next().token_type.is_identifier() {
-    //             if self
-    //                 .tokens
-    //                 .get(self.current + 2)
-    //                 .map_or(false, |t| t.token_type == TokenType::Colon)
-    //             {
-    //                 return self.parse_function_expression();
-    //             }
-    //         }
-    //     }
-
-    //     self.parse_assignment_expression()
-    // }
-
     fn parse_expression(&mut self) -> Result<Expression, ParseError> {
         let _ctx = self.context("expression");
 

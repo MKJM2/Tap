@@ -1,1 +1,8 @@
 [1, 2];
+a = Map();
+a.insert(5, 4);
+a.remove(5);
+a;
+a.insert(5,4);
+a.has(5)
+a.contains(5)

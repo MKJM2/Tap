@@ -463,6 +463,70 @@ mod interpreter_tests {
     }
 
     #[test]
+    fn test_for_loop_noninclusive_range() {
+        let source = "
+            mut res = [];
+            n = 5;
+            // 0..<3 ==> [0, 1, 2]
+            for i in 0..<(n-2) {
+                res.push(i);
+            }
+            res
+            ";
+        assert_interpret_output_and_dump_ast!(
+            source,
+            Ok(Some(Value::List(vec![
+                Value::Integer(0),
+                Value::Integer(1),
+                Value::Integer(2),
+            ])))
+        );
+    }
+
+    #[test]
+    fn test_for_loop_noninclusive_range_diff_syntax() {
+        let source = "
+                mut res = [];
+                n = 5;
+                // 0..3 ==> [0, 1, 2]
+                for i in 0..(n-2) {
+                    res.push(i);
+                }
+                res
+                ";
+        assert_interpret_output_and_dump_ast!(
+            source,
+            Ok(Some(Value::List(vec![
+                Value::Integer(0),
+                Value::Integer(1),
+                Value::Integer(2),
+            ])))
+        );
+    }
+
+    #[test]
+    fn test_for_loop_inclusive_range() {
+        let source = "
+                    mut res = [];
+                    n = 5;
+                    // 0..=3 ==> [0, 1, 2, 3]
+                    for i in 0..=(n-2) {
+                        res.push(i);
+                    }
+                    res
+                    ";
+        assert_interpret_output_and_dump_ast!(
+            source,
+            Ok(Some(Value::List(vec![
+                Value::Integer(0),
+                Value::Integer(1),
+                Value::Integer(2),
+                Value::Integer(3),
+            ])))
+        );
+    }
+
+    #[test]
     fn test_interpret_for_loop_identifier_pattern() {
         let source = "
             mut sum = 0;
