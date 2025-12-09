@@ -1765,7 +1765,11 @@ impl<'a> Parser<'a> {
                 if next_token == TokenType::Colon
                     || (next_token == TokenType::OpenParen && self.looks_like_function_definition())
                 {
-                    statements.push(self.parse_statement()?);
+                    let stmt = self.parse_statement()?;
+                    if matches!(stmt, Statement::Let(LetStatement::Function(_))) {
+                        self.maybe_consume(&[TokenType::Semicolon]);
+                    }
+                    statements.push(stmt);
                     continue;
                 }
             }

@@ -1,13 +1,106 @@
 use crate::interpreter::{Interpreter, MapKey, RuntimeError, Value};
-use crate::types::Type;
+use crate::types::{SymbolInfo, Type};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
+
+/// Registry of all built-in functions and variables with their type signatures
+pub struct BuiltinRegistry {
+    pub global_functions: HashMap<String, Type>,
+    pub global_variables: HashMap<String, SymbolInfo>,
+}
+
+impl BuiltinRegistry {
+    pub fn new() -> Self {
+        let mut global_functions = HashMap::new();
+        let mut global_variables = HashMap::new();
+
+        // === GLOBAL FUNCTIONS ===
+        global_functions.insert(
+            "print".to_string(),
+            Type::Function(vec![Type::Any], Box::new(Type::Unit)),
+        );
+
+        global_functions.insert(
+            "eprint".to_string(),
+            Type::Function(vec![Type::Any], Box::new(Type::Unit)),
+        );
+
+        global_functions.insert(
+            "Map".to_string(),
+            Type::Function(
+                vec![],
+                Box::new(Type::Map(Box::new(Type::Unknown), Box::new(Type::Unknown))),
+            ),
+        );
+
+        // TODO: read, read_lines, write, close
+        global_functions.insert(
+            "open".to_string(),
+            Type::Function(
+                vec![Type::String, Type::String],
+                Box::new(Type::Any), // File type
+            ),
+        );
+
+        // === MATH FUNCTIONS ===
+        global_functions.insert(
+            "sqrt".to_string(),
+            Type::Function(vec![Type::Float, Type::Float], Box::new(Type::Float)),
+        );
+
+        // === GLOBAL VARIABLES ===
+
+        // args built-in
+        global_variables.insert(
+            "args".to_string(),
+            SymbolInfo {
+                ty: Self::get_args_type(),
+                mutable: false,
+            },
+        );
+
+        BuiltinRegistry {
+            global_functions,
+            global_variables,
+        }
+    }
+
+    /// Returns the type signature for the built-in `args` object
+    fn get_args_type() -> Type {
+        Type::Record(HashMap::from([
+            // Properties (direct access)
+            ("program".to_string(), Type::String),
+            ("values".to_string(), Type::List(Box::new(Type::String))),
+            ("length".to_string(), Type::Int),
+            // Methods (require function call)
+            (
+                "get".to_string(),
+                Type::Function(vec![Type::Int], Box::new(Type::String)),
+            ),
+            (
+                "has".to_string(),
+                Type::Function(vec![Type::String], Box::new(Type::Bool)),
+            ),
+            (
+                "get_option".to_string(),
+                Type::Function(vec![Type::String], Box::new(Type::String)),
+            ),
+        ]))
+    }
+}
+
+impl Default for BuiltinRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 pub fn eval_method(
     interp: &mut Interpreter,
     receiver: Value,
     method: &str,
-    args: Vec<Value>,
+    mut args: Vec<Value>,
     var_name: Option<&str>,
 ) -> Result<Value, RuntimeError> {
     // Helper to enforce argument counts
@@ -107,8 +200,8 @@ pub fn eval_method(
         Value::List(mut list) => match method {
             "push" | "append" => {
                 check_arg_count(1)?;
-                list.push(args[0].clone());
-                mutate_and_return!(Value::List(list))
+                list.push(args.swap_remove(0));
+                mutate_side_effect!(Value::List(list), Value::Unit)
             }
             "pop" => {
                 if list.is_empty() {
@@ -147,6 +240,56 @@ pub fn eval_method(
             }
             "sort" => {
                 // Sorting logic
+
+                // Custom comparator function path. sort(cmp(a, b)) errors if the user-provided
+                // comparator callable errors
+                if !args.is_empty() && matches!(args[0], Value::Function { .. }) {
+                    let comparator_func = args.swap_remove(0);
+
+                    let mut sort_error: Option<RuntimeError> = None;
+
+                    list.sort_by(|a, b| {
+                        if sort_error.is_some() {
+                            return Ordering::Equal; // Return dummy value, as we're already in an error state
+                        }
+
+                        let res = interp.eval_function_call_value(
+                            comparator_func.clone(), // Clone for each call if needed, or pass &Value
+                            &[a.clone(), b.clone()],
+                        );
+
+                        match res {
+                            Ok(Value::Integer(i)) => {
+                                if i < 0 {
+                                    Ordering::Less
+                                } else if i > 0 {
+                                    Ordering::Greater
+                                } else {
+                                    Ordering::Equal
+                                }
+                            }
+                            Ok(_) => {
+                                // Comparator returned non-integer, capture the error
+                                sort_error = Some(RuntimeError::Type(
+                                    "Comparison function returned a non-integer value".into(),
+                                ));
+                                Ordering::Equal // Return dummy, error will be propagated later
+                            }
+                            Err(e) => {
+                                // The comparison function itself failed, capture the error
+                                sort_error = Some(e);
+                                Ordering::Equal // Return dummy, error will be propagated later
+                            }
+                        }
+                    });
+
+                    // After sorting, check if an error was captured
+                    if let Some(err) = sort_error {
+                        return Err(err); // Propagate the error out of the entire `sort` operation
+                    }
+                    return mutate_side_effect!(Value::List(list), Value::Unit);
+                }
+
                 if list.iter().all(|v| matches!(v, Value::Integer(_))) {
                     list.sort_by(|a, b| {
                         if let (Value::Integer(x), Value::Integer(y)) = (a, b) {
@@ -155,6 +298,7 @@ pub fn eval_method(
                             std::cmp::Ordering::Equal
                         }
                     });
+                    return mutate_side_effect!(Value::List(list), Value::Unit);
                 } else if list.iter().all(|v| matches!(v, Value::Float(_))) {
                     list.sort_by(|a, b| {
                         if let (Value::Float(x), Value::Float(y)) = (a, b) {
@@ -163,6 +307,7 @@ pub fn eval_method(
                             std::cmp::Ordering::Equal
                         }
                     });
+                    return mutate_side_effect!(Value::List(list), Value::Unit);
                 } else if list.iter().all(|v| matches!(v, Value::String(_))) {
                     list.sort_by(|a, b| {
                         if let (Value::String(x), Value::String(y)) = (a, b) {
@@ -171,12 +316,13 @@ pub fn eval_method(
                             std::cmp::Ordering::Equal
                         }
                     });
+                    return mutate_side_effect!(Value::List(list), Value::Unit);
                 } else {
-                    return Err(RuntimeError::Type(
-                        "Cannot sort list with mixed or unsortable types".into(),
-                    ));
+                    // No comparator provided, and list is mixed/unsortable
+                    Err(RuntimeError::Type(
+                        "Cannot sort list with mixed or unsortable types without a comparator function".into(),
+                        ))
                 }
-                mutate_and_return!(Value::List(list))
             }
             "length" => Ok(Value::Integer(list.len() as i64)),
             "contains" => {
@@ -638,7 +784,7 @@ fn get_list_method_type(inner: &Type, method: &str) -> Option<Type> {
             vec![],
             Box::new(Type::List(Box::new(inner.clone()))),
         )),
-        "length" => Some(Type::Int),
+        "length" => Some(Type::Function(vec![], Box::new(Type::Int))),
         "contains" => Some(Type::Function(vec![inner.clone()], Box::new(Type::Bool))),
         "index_of" => Some(Type::Function(vec![inner.clone()], Box::new(Type::Int))),
         "slice" => Some(Type::Function(
@@ -669,7 +815,7 @@ fn get_list_method_type(inner: &Type, method: &str) -> Option<Type> {
             ))
         }
         "first" | "last" => Some(Type::Function(vec![], Box::new(inner.clone()))),
-        "is_empty" => Some(Type::Bool),
+        "is_empty" => Some(Type::Function(vec![], Box::new(Type::Bool))),
         _ => None,
     }
 }
@@ -692,8 +838,8 @@ fn get_map_method_type(key_ty: &Type, val_ty: &Type, method: &str) -> Option<Typ
             vec![key_ty.clone()],
             Box::new(val_ty.clone()),
         )),
-        "length" | "size" => Some(Type::Int),
-        "is_empty" => Some(Type::Bool),
+        "length" | "size" => Some(Type::Function(vec![], Box::new(Type::Int))),
+        "is_empty" => Some(Type::Function(vec![], Box::new(Type::Bool))),
         "clear" => Some(Type::Function(
             vec![],
             Box::new(Type::Map(
@@ -725,7 +871,7 @@ fn get_map_method_type(key_ty: &Type, val_ty: &Type, method: &str) -> Option<Typ
 
 fn get_string_method_type(method: &str) -> Option<Type> {
     match method {
-        "length" => Some(Type::Int),
+        "length" | "size" => Some(Type::Function(vec![], Box::new(Type::Int))),
         "split" => Some(Type::Function(
             vec![Type::String],
             Box::new(Type::List(Box::new(Type::String))),

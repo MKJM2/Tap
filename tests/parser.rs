@@ -1454,3 +1454,23 @@ fn test_parse_generic_type_list() {
         _ => panic!("Expected type declaration for Pair"),
     }
 }
+
+#[test]
+fn test_parse_nested_functions() {
+    let source = r#"
+    solve(): int = {
+        mut res = 0;
+
+        add_value(x: int) = {
+            res = res + x;
+        };
+
+        add_value(5);
+        add_value(10);
+        res
+    };
+    solve();
+    "#;
+    let program = assert_parses(source);
+    assert_eq!(program.statements.len(), 2);
+}

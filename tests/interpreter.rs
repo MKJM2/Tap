@@ -2,6 +2,7 @@ use tap::diagnostics::Reporter;
 use tap::interpreter::{Interpreter, RuntimeError, Value};
 use tap::lexer::Lexer;
 use tap::parser::Parser;
+use tap::type_checker::TypeChecker;
 use tap::utils::pretty_print_tokens;
 
 type AstProgram = tap::ast::Program;
@@ -14,6 +15,8 @@ struct InterpretOutput {
 
 fn interpret_source_with_ast(source: &str) -> InterpretOutput {
     let mut reporter = Reporter::new();
+
+    // Lex
     let tokens = Lexer::new(source, &mut reporter)
         .tokenize()
         .unwrap_or_else(|e| {
@@ -31,6 +34,7 @@ fn interpret_source_with_ast(source: &str) -> InterpretOutput {
         panic!("Lexing failed with reporter errors.");
     }
 
+    // Parse
     let mut parser = Parser::new(&tokens, &mut reporter);
     let program_result = parser.parse_program();
 
@@ -46,6 +50,15 @@ fn interpret_source_with_ast(source: &str) -> InterpretOutput {
     }
 
     let program = program_result.expect("Parser failed unexpectedly but no errors reported.");
+
+    // Type check (TODO: plug in reporter)
+    // let mut checker = TypeChecker::new();
+    // if let Err(e) = checker.check_program(&program) {
+    //     println!("{source}");
+    //     panic!("Type check failed unexpectedly: {:?}", e);
+    // }
+
+    // Interpret
     let mut interpreter = Interpreter::new();
     let interpretation_result = interpreter.interpret(&program);
 
@@ -907,7 +920,7 @@ mod interpreter_tests {
             map(f: int -> int, lst: [int]): [int] = {
                 mut result_list: [int] = [];
                 for element in lst {
-                    result_list = result_list.push(f(element));
+                    result_list.push(f(element));
                 };
                 return result_list;
             };
@@ -948,13 +961,13 @@ mod interpreter_tests {
                 mut i = 1;
                 while (i <= n) {
                     if (i % 15 == 0) {
-                        results = results.push("FizzBuzz");
+                        results.push("FizzBuzz");
                     } else if (i % 3 == 0) {
-                        results = results.push("Fizz");
+                        results.push("Fizz");
                     } else if (i % 5 == 0) {
-                        results = results.push("Buzz");
+                        results.push("Buzz");
                     } else {
-                        results = results.push(i.to_string());
+                        results.push(i.to_string());
                     };
                     i = i + 1;
                 }
@@ -1028,7 +1041,7 @@ mod interpreter_tests {
                 mut reversed: [int] = [];
                 mut i = lst.length() - 1;
                 while (i >= 0) {
-                    reversed = reversed.append(lst[i]);
+                    reversed.append(lst[i]);
                     i = i - 1;
                 }
                 reversed
@@ -1105,7 +1118,7 @@ mod interpreter_tests {
                 mut filtered: [int] = [];
                 for element in lst {
                     if (predicate(element)) {
-                        filtered = filtered.push(element);
+                        filtered.push(element);
                     }
                 };
                 return filtered;
@@ -1235,7 +1248,7 @@ mod interpreter_tests {
                 mut uniques: [int] = [];
                 for element in lst {
                     if (!contains(uniques, element)) {
-                        uniques = uniques.append(element);
+                        uniques.append(element);
                     };
                 };
                 return uniques;
@@ -1341,7 +1354,7 @@ mod interpreter_tests {
             map_points_to_x(points: [Point]): [int] = {
                 mut x_coords: [int] = [];
                 for p in points {
-                    x_coords = x_coords.push(p.x);
+                    x_coords.push(p.x);
                 }
                 return x_coords;
             };
@@ -1410,7 +1423,7 @@ mod interpreter_tests {
                     trimmed = line.trim();
                     if (trimmed.length() > 0) {
                         turn = parse_turn(trimmed);
-                        turns = turns.push(turn);
+                        turns.push(turn);
                     }
                 }
 

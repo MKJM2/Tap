@@ -40,6 +40,17 @@ impl Environment {
     pub fn get(&self, name: &str) -> Option<Value> {
         let state = self.state.borrow();
         if let Some(val) = state.values.get(name) {
+            // --- ADD THIS DEBUG BLOCK ---
+            if let Value::List(vec) = val {
+                if vec.len() > 1000 && vec.len() % 1000 == 0 {
+                    println!(
+                        "PERF WARNING: Deep cloning list of size {} from variable '{}'",
+                        vec.len(),
+                        name
+                    );
+                }
+            }
+            // ----------------------------
             return Some(val.clone());
         }
 

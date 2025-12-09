@@ -251,7 +251,7 @@ impl<'a> Lexer<'a> {
                     } else if self.match_char('<') {
                         self.add_token(TokenType::DotDotLess);
                     } else {
-                        self.add_token(TokenType::Dot);
+                        self.add_token(TokenType::DotDot);
                     }
                 } else {
                     self.add_token(TokenType::Dot)

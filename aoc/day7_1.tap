@@ -35,7 +35,7 @@ solve() = {
         }
     }
 
-    lasers = Map();
+    mut lasers = Map();
     lasers.insert(s_idx, true);
 
     i = 0;

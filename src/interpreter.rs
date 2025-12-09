@@ -173,7 +173,8 @@ impl Interpreter {
 
     fn inject_builtins(&mut self) {
         // Inject built-in functions as special function values
-        let builtins = vec!["print", "eprint", "open", "input", "Map"];
+        // TODO: this should also be moved into builtins.rs
+        let builtins = vec!["print", "eprint", "open", "input", "Map", "sqrt"];
         for name in builtins {
             self.env.define(
                 name.to_string(),
@@ -679,6 +680,7 @@ impl Interpreter {
             arg_values.push(self.eval_expr(arg)?);
         }
 
+        // TODO: These need to be moved to src/builtins.rs
         if let Value::Function {
             name: Some(name), ..
         } = &func_value
@@ -728,13 +730,27 @@ impl Interpreter {
                     }
                     return Ok(Value::Map(HashMap::new()));
                 }
+                "sqrt" => {
+                    if arg_values.len() != 1 {
+                        return Err(RuntimeError::Type("sqrt expects 1 argument".into()));
+                    }
+                    match arg_values[0] {
+                        Value::Integer(i) => return Ok(Value::Float((i as f64).sqrt())),
+                        Value::Float(f) => return Ok(Value::Float(f.sqrt())),
+                        _ => {
+                            return Err(RuntimeError::Type(format!(
+                                "sqrt() only takes numeric arguments, not: {:?}",
+                                arg_values[0]
+                            )));
+                        }
+                    }
+                }
                 _ => {} // Continue to normal call
             }
         }
 
         if let Value::BuiltInMethod { receiver, method } = func_value {
             // For methods, we need to pass back to builtins module
-            // But wait, eval_builtin_method expects AST expressions in the old code?
             return eval_method(self, *receiver, &method, arg_values, var_name);
         }
 

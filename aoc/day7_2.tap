@@ -1,0 +1,88 @@
+get_file_content(): string = {
+    // `args` is a built-in injected into global env by interpreter runtime
+    file = open(args.get(0), "r");
+    content: string = file.read();
+    file.close();
+    content
+}
+
+solve() = {
+    content = get_file_content();
+
+    raw_lines: [string] = content.split("\n");
+    mut lines: [string] = [];
+
+    for l in raw_lines {
+        if l.length() > 0 {
+            lines.push(l);
+        }
+    }
+
+    mut res: int = 0;
+    mut s_idx = -1;
+
+    // TODO: could use enumerate()
+    mut i = 0;
+    for ch in lines[0].split("") {
+        if ch == "S" {
+            s_idx = i;
+            break;
+        }
+        // TODO: need to fix split("") to not return
+        // random empty strings?
+        if (ch != "") {
+            i += 1;
+        }
+    }
+
+    mut timelines = Map();
+    // In part 2 we were storing a boolean
+    // just to indicate that at a particular point in
+    // time there was a laser present in a given col idx.
+    // Now we have to store a count, to count the number of
+    // _timelines_ that could have arrived at a laser in col idx.
+    timelines.insert(s_idx, 1);
+
+    i = 0;
+    n = lines.length();
+    // TODO: could use range based indexing / whatever Rust / Swift do / iters
+    for i in 1..<n {
+        mut next_timelines = Map();
+
+        line = lines[i];
+
+        for entry in timelines.entries() {
+            if line[entry.key] == "^" {
+                // splitter hit, split timeline
+                val = entry.value;
+                if next_timelines.has(entry.key - 1) {
+                    next_timelines.insert(entry.key - 1,
+                        val + next_timelines.get(entry.key - 1));
+                } else {
+                    next_timelines.insert(entry.key - 1, val);
+                }
+                if next_timelines.has(entry.key + 1) {
+                    next_timelines.insert(entry.key + 1,
+                        val + next_timelines.get(entry.key + 1));
+                } else {
+                    next_timelines.insert(entry.key + 1, val);
+                }
+            } else {
+                mut val = entry.value;
+                if next_timelines.has(entry.key) {
+                    val += next_timelines.get(entry.key);
+                }
+                next_timelines.insert(entry.key, val);
+            }
+        }
+        timelines = next_timelines;
+    }
+
+    for v in timelines.values() {
+        res += v
+    }
+
+    print(res);
+}
+
+solve();
