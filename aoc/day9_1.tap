@@ -1,0 +1,50 @@
+
+get_file_content(): string = {
+    // `args` is a built-in injected into global env by interpreter runtime
+    file = open(args.get(0), "r");
+    content: string = file.read();
+    file.close();
+    content
+}
+
+abs(x): int = {
+    if x < 0 {
+        -x
+    } else {
+        x
+    }
+}
+
+solve() = {
+    content = get_file_content();
+
+    lines: [string] = content.split("\n").filter((l) => l.length() > 0);
+    positions: [[int]] = lines.map((l) => {
+        ds = l.split(",");
+        [ds[0].parse_int(), ds[1].parse_int()]
+    });
+    // print(positions);
+
+    // Bruteforce:
+    // For each pair of # simply calculate the area, keep track of max
+    mut max_so_far: int = 0;
+    n = positions.length();
+    for i in 0..<n {
+        a = positions[i];
+        for j in (i+1)..<n {
+            b = positions[j];
+
+            // calculate area of rectangle between a & b
+            dx = abs(a[0] - b[0]) + 1;
+            dy = abs(a[1] - b[1]) + 1;
+            area = dx * dy;
+            if area > max_so_far {
+                max_so_far = area;
+            }
+        }
+        print("Done with " + (((i+1) * 100 / n)).to_string() + "%");
+    }
+    print(max_so_far);
+}
+
+solve();

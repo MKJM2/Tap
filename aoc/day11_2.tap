@@ -1,0 +1,242 @@
+get_file_content(): string = {
+    file = open(args.get(0), "r");
+    content: string = file.read();
+    file.close();
+    content
+}
+
+substr(s, start, end): string = {
+    mut res = "";
+    for i in start..<end {
+        res = res + s[i];
+    }
+    res
+}
+
+is_ws(ch): bool = {
+    ch == " " || ch == "\t" || ch == "\r"
+}
+
+trim(s): string = {
+    mut start = 0;
+    mut end = s.length();
+
+    while start < end && is_ws(s[start]) {
+        start = start + 1;
+    }
+    while end > start && is_ws(s[end - 1]) {
+        end = end - 1;
+    }
+
+    substr(s, start, end)
+}
+
+get_or_add_id(name, names): int = {
+    mut found = -1;
+    for i in 0..<names.length() {
+        if names[i] == name {
+            found = i;
+            break;
+        }
+    }
+
+    if found == -1 {
+        names.push(name);
+        found = names.length() - 1;
+    }
+
+    found
+}
+
+find_id(name, names): int = {
+    mut found = -1;
+    for i in 0..<names.length() {
+        if names[i] == name {
+            found = i;
+            break;
+        }
+    }
+    found
+}
+
+// Tap doesn't yet implement logical OR or bitwise OR.
+// We use a 2-bit mask in [0..3]:
+// bit0 => visited dac
+// bit1 => visited fft
+set_dac_bit(mask): int = {
+    // if bit0 not set, add 1
+    if ((mask % 2) == 0) {
+        mask + 1
+    } else {
+        mask
+    }
+}
+
+set_fft_bit(mask): int = {
+    // if bit1 not set, add 2
+    // bit1 is the "2s place": (mask / 2) % 2
+    if (((mask / 2) % 2) == 0) {
+        mask + 2
+    } else {
+        mask
+    }
+}
+
+// Count paths from `node` to `out_id` that visit both dac and fft (any order).
+// State: (node, mask). Memo key: node * 4 + mask.
+// Avoids eager && by nesting conditions.
+count_paths(node, mask, out_id, dac_id, fft_id, adj, memo, visiting): int = {
+    mut new_mask = mask;
+    if node == dac_id {
+        new_mask = set_dac_bit(new_mask);
+    }
+    if node == fft_id {
+        new_mask = set_fft_bit(new_mask);
+    }
+
+    if node == out_id {
+        if new_mask == 3 {
+            1
+        } else {
+            0
+        }
+    } else {
+        key = node * 4 + new_mask;
+
+        if memo.has(key) {
+            memo.get(key)
+        } else {
+            mut on_stack = false;
+            if visiting.has(key) {
+                if visiting.get(key) == 1 {
+                    on_stack = true;
+                }
+            }
+
+            if on_stack {
+                // Guard against cycles; AoC inputs likely avoid them.
+                0
+            } else {
+                visiting.insert(key, 1);
+
+                mut total: int = 0;
+                if adj.has(node) {
+                    outs: [int] = adj.get(node);
+                    for nxt in outs {
+                        total = total
+                            + count_paths(
+                                nxt,
+                                new_mask,
+                                out_id,
+                                dac_id,
+                                fft_id,
+                                adj,
+                                memo,
+                                visiting
+                            );
+                    }
+                }
+
+                visiting.insert(key, 0);
+                memo.insert(key, total);
+                total
+            }
+        }
+    }
+}
+
+solve() = {
+    content = get_file_content();
+    raw_lines: [string] = content.split("\n");
+
+    mut lines: [string] = [];
+    for l in raw_lines {
+        if l.length() > 0 {
+            lines.push(l);
+        }
+    }
+
+    mut names: [string] = [];
+    mut adj = Map(); // int -> [int]
+
+    for raw in lines {
+        line = trim(raw);
+        if line.length() == 0 {
+            continue;
+        }
+
+        parts = line.split(":");
+        src_name = trim(parts[0]);
+        src_id = get_or_add_id(src_name, names);
+
+        if !adj.has(src_id) {
+            mut empty: [int] = [];
+            adj.insert(src_id, empty);
+        }
+
+        mut rhs = "";
+        if parts.length() > 1 {
+            rhs = trim(parts[1]);
+        }
+
+        if rhs.length() > 0 {
+            tokens = rhs.split(" ").filter((w) => w.length() > 0);
+
+            outs: [int] = adj.get(src_id);
+            for t0 in tokens {
+                t = trim(t0);
+                if t.length() == 0 {
+                    continue;
+                }
+
+                dst_id = get_or_add_id(t, names);
+
+                if !adj.has(dst_id) {
+                    mut empty2: [int] = [];
+                    adj.insert(dst_id, empty2);
+                }
+
+                outs.push(dst_id);
+            }
+            adj.insert(src_id, outs);
+        }
+    }
+
+    start_id = find_id("svr", names);
+    out_id = find_id("out", names);
+    dac_id = find_id("dac", names);
+    fft_id = find_id("fft", names);
+
+    if start_id == -1 {
+        print(0);
+    } else {
+        if out_id == -1 {
+            print(0);
+        } else {
+            if dac_id == -1 {
+                print(0);
+            } else {
+                if fft_id == -1 {
+                    print(0);
+                } else {
+                    mut memo = Map(); // int -> int
+                    mut visiting = Map(); // int -> int (0/1)
+
+                    res = count_paths(
+                        start_id,
+                        0,
+                        out_id,
+                        dac_id,
+                        fft_id,
+                        adj,
+                        memo,
+                        visiting
+                    );
+                    print(res);
+                }
+            }
+        }
+    }
+}
+
+solve();

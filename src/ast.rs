@@ -170,26 +170,14 @@ pub struct Parameter {
 /// Represents a type in the language.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
-    Function {
-        params: Vec<Type>, // Types of parameters
-        return_type: Box<Type>,
-        span: Span,
-    },
-    Primary(TypePrimary),
-}
-
-impl Type {
-    pub fn span(&self) -> Span {
-        match self {
-            Type::Function { span, .. } => *span,
-            Type::Primary(primary) => primary.span(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum TypePrimary {
-    Named(String, Span), // e.g., "Int", "String", "MyStruct"
+    Int(Span),
+    Float(Span),
+    String(Span),
+    Bool(Span),
+    Unit(Span),
+    Any(Span),
+    Inferred(Span),
+    Named(String, Span), // e.g., "MyStruct"
     Generic {
         name: String,
         args: Vec<Type>,
@@ -197,15 +185,28 @@ pub enum TypePrimary {
     }, // e.g., "Option[Int, String]"
     Record(RecordType),
     List(Box<Type>, Span), // e.g., "[Int]"
+    Function {
+        params: Vec<Type>, // Types of parameters
+        return_type: Box<Type>,
+        span: Span,
+    },
 }
 
-impl TypePrimary {
+impl Type {
     pub fn span(&self) -> Span {
         match self {
-            TypePrimary::Named(_, span) => *span,
-            TypePrimary::Generic { span, .. } => *span,
-            TypePrimary::Record(record) => record.span,
-            TypePrimary::List(_, span) => *span,
+            Type::Int(span) => *span,
+            Type::Float(span) => *span,
+            Type::String(span) => *span,
+            Type::Bool(span) => *span,
+            Type::Unit(span) => *span,
+            Type::Any(span) => *span,
+            Type::Inferred(span) => *span,
+            Type::Named(_, span) => *span,
+            Type::Generic { span, .. } => *span,
+            Type::Record(record) => record.span,
+            Type::List(_, span) => *span,
+            Type::Function { span, .. } => *span,
         }
     }
 }
@@ -481,6 +482,7 @@ pub enum BinaryOperator {
     // Logical
     And,
     Or,
+    Xor,
 
     // Assignment
     Assign,
@@ -531,6 +533,7 @@ impl fmt::Display for BinaryOperator {
             BinaryOperator::LessThanEqual => write!(f, "<="),
             BinaryOperator::And => write!(f, "&&"),
             BinaryOperator::Or => write!(f, "||"),
+            BinaryOperator::Xor => write!(f, "^"),
             BinaryOperator::Assign => write!(f, "="),
             BinaryOperator::AddAssign => write!(f, "+="),
             BinaryOperator::SubtractAssign => write!(f, "-="),

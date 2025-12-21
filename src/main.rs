@@ -4,8 +4,11 @@ use reedline::{FileBackedHistory, Reedline, Signal};
 use std::fs;
 use std::path::PathBuf;
 use tap::{
-    diagnostics::Reporter, interpreter::Interpreter, lexer::Lexer, parser::Parser, prompt::Prompt,
-    type_checker::TypeChecker,
+    diagnostics::Reporter,
+    interpreter::Interpreter,
+    lexer::Lexer,
+    parser::Parser,
+    prompt::Prompt,
 };
 
 #[derive(CLAParser)]

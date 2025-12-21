@@ -1,0 +1,599 @@
+get_file_content(): string = {
+    file = open(args.get(0), "r");
+    content: string = file.read();
+    file.close();
+    content
+}
+
+substr(s, start, end): string = {
+    mut res = "";
+    for i in start..<end {
+        res = res + s[i];
+    }
+    res
+}
+
+is_ws(ch): bool = {
+    if ch == " " {
+        true
+    } else {
+        if ch == "\t" {
+            true
+        } else {
+            if ch == "\r" {
+                true
+            } else {
+                false
+            }
+        }
+    }
+}
+
+trim(s): string = {
+    mut start = 0;
+    mut end = s.length();
+
+    while start < end {
+        if is_ws(s[start]) {
+            start = start + 1;
+        } else {
+            break;
+        }
+    }
+
+    while end > start {
+        if is_ws(s[end - 1]) {
+            end = end - 1;
+        } else {
+            break;
+        }
+    }
+
+    substr(s, start, end)
+}
+
+is_digit(ch): bool = {
+    if ch == "0" || ch == "1" || ch == "2" || ch == "3" || ch == "4" || ch == "5" || ch == "6" || ch == "7" || ch == "8" || ch == "9" {
+        true
+    } else {
+        false
+    }
+}
+
+is_digits(s): bool = {
+    mut any = false;
+    for i in 0..<s.length() {
+        any = true;
+        if !is_digit(s[i]) {
+            return false;
+        }
+    }
+    any
+}
+
+is_region_line(line): bool = {
+    parts = line.split(":");
+    if parts.length() < 2 {
+        return false;
+    }
+
+    lhs = trim(parts[0]);
+    xs = lhs.split("x");
+    if xs.length() != 2 {
+        return false;
+    }
+
+    w_s = trim(xs[0]);
+    h_s = trim(xs[1]);
+
+    if !is_digits(w_s) {
+        return false;
+    }
+    if !is_digits(h_s) {
+        return false;
+    }
+
+    true
+}
+
+is_shape_header_line(line): bool = {
+    parts = line.split(":");
+    if parts.length() < 2 {
+        return false;
+    }
+
+    lhs = trim(parts[0]);
+    xs = lhs.split("x");
+    if xs.length() != 1 {
+        return false;
+    }
+
+    is_digits(lhs)
+}
+
+min_int(a, b): int = {
+    if a < b { a } else { b }
+}
+
+max_int(a, b): int = {
+    if a > b { a } else { b }
+}
+
+// Bubble-sort coords by (y, then x)
+sort_coords(coords): [[int]] = {
+    mut arr: [[int]] = coords;
+    mut changed = true;
+
+    while changed {
+        changed = false;
+        mut i = 0;
+        while i + 1 < arr.length() {
+            a = arr[i];
+            b = arr[i + 1];
+
+            ay = a[1];
+            by = b[1];
+            ax = a[0];
+            bx = b[0];
+
+            mut swap = false;
+            if ay > by {
+                swap = true;
+            } else {
+                if ay == by {
+                    if ax > bx {
+                        swap = true;
+                    }
+                }
+            }
+
+            if swap {
+                tmp = arr[i];
+                arr[i] = arr[i + 1];
+                arr[i + 1] = tmp;
+                changed = true;
+            }
+
+            i = i + 1;
+        }
+    }
+
+    arr
+}
+
+coords_key(coords): string = {
+    mut s = "";
+    for c in coords {
+        s = s + c[0].to_string() + "," + c[1].to_string() + ";";
+    }
+    s
+}
+
+// Generate 8 symmetries: (optional flip) x (0,90,180,270 rotation)
+transform_coords(base, t): [[int]] = {
+    rot = t % 4;
+
+    mut tmp: [[int]] = [];
+    for c in base {
+        mut x = c[0];
+        mut y = c[1];
+
+        if t >= 4 {
+            x = -x; // flip across Y axis
+        }
+
+        mut nx = 0;
+        mut ny = 0;
+
+        if rot == 0 {
+            nx = x;
+            ny = y;
+        } else {
+            if rot == 1 {
+                nx = y;
+                ny = -x;
+            } else {
+                if rot == 2 {
+                    nx = -x;
+                    ny = -y;
+                } else {
+                    nx = -y;
+                    ny = x;
+                }
+            }
+        }
+
+        tmp.push([nx, ny]);
+    }
+
+    // Normalize min x,y to 0
+    mut minx = 999999999;
+    mut miny = 999999999;
+
+    for c in tmp {
+        minx = min_int(minx, c[0]);
+        miny = min_int(miny, c[1]);
+    }
+
+    mut norm: [[int]] = [];
+    for c in tmp {
+        norm.push([c[0] - minx, c[1] - miny]);
+    }
+
+    sort_coords(norm)
+}
+
+generate_orientations(base_coords): [[[int]]] = {
+    mut seen = Map(); // string -> int
+    mut res: [[[int]]] = [];
+
+    for t in 0..<8 {
+        coords = transform_coords(base_coords, t);
+        key = coords_key(coords);
+        if !seen.has(key) {
+            seen.insert(key, 1);
+            res.push(coords);
+        }
+    }
+
+    res
+}
+
+orientation_dims(coords): [int] = {
+    mut maxx = 0;
+    mut maxy = 0;
+    for c in coords {
+        maxx = max_int(maxx, c[0]);
+        maxy = max_int(maxy, c[1]);
+    }
+    [maxx + 1, maxy + 1]
+}
+
+can_place(occ, cells): bool = {
+    for idx in cells {
+        if occ[idx] == 1 {
+            return false;
+        }
+    }
+    true
+}
+
+apply_place(occ, cells, v) = {
+    for idx in cells {
+        occ[idx] = v;
+    }
+}
+
+search(
+    occ,
+    remaining,
+    placements_by_shape,
+    cell_counts,
+    board_size,
+    filled_cells
+): bool = {
+    mut any_left = false;
+    mut total_left_cells = 0;
+
+    for s in 0..<remaining.length() {
+        if remaining[s] > 0 {
+            any_left = true;
+            total_left_cells = total_left_cells + remaining[s] * cell_counts[s];
+        }
+    }
+
+    if !any_left {
+        return true;
+    }
+
+    free_cells = board_size - filled_cells;
+    if total_left_cells > free_cells {
+        return false;
+    }
+
+    // MRV: choose shape with fewest currently possible placements
+    mut best_shape = -1;
+    mut best_fit_count = 999999999;
+
+    for s in 0..<remaining.length() {
+        if remaining[s] <= 0 {
+            continue;
+        }
+
+        placements = placements_by_shape[s];
+
+        mut fit = 0;
+        for p in placements {
+            if can_place(occ, p) {
+                fit = fit + 1;
+                if fit >= best_fit_count {
+                    break;
+                }
+            }
+        }
+
+        if fit == 0 {
+            return false;
+        }
+
+        if fit < best_fit_count {
+            best_fit_count = fit;
+            best_shape = s;
+        }
+    }
+
+    placements = placements_by_shape[best_shape];
+    for p in placements {
+        if can_place(occ, p) {
+            apply_place(occ, p, 1);
+            remaining[best_shape] = remaining[best_shape] - 1;
+
+            if search(
+                occ,
+                remaining,
+                placements_by_shape,
+                cell_counts,
+                board_size,
+                filled_cells + cell_counts[best_shape]
+            ) {
+                return true;
+            }
+
+            remaining[best_shape] = remaining[best_shape] + 1;
+            apply_place(occ, p, 0);
+        }
+    }
+
+    false
+}
+
+solve_region(w, h, counts, orientations_by_shape, cell_counts): bool = {
+    board_size = w * h;
+
+    // placements_by_shape: [shape][placement] -> [cellIndex...]
+    mut placements_by_shape: [[[int]]] = [];
+
+    for s in 0..<cell_counts.length() {
+        mut all_places: [[int]] = [];
+
+        if cell_counts[s] == 0 {
+            placements_by_shape.push(all_places);
+            continue;
+        }
+
+        orients = orientations_by_shape[s];
+
+        for orient in orients {
+            dims = orientation_dims(orient);
+            ow = dims[0];
+            oh = dims[1];
+
+            if ow > w {
+                continue;
+            }
+            if oh > h {
+                continue;
+            }
+
+            limit_y = h - oh + 1;
+            limit_x = w - ow + 1;
+
+            for y0 in 0..<limit_y {
+                for x0 in 0..<limit_x {
+                    mut cells: [int] = [];
+                    for c in orient {
+                        x = x0 + c[0];
+                        y = y0 + c[1];
+                        idx = y * w + x;
+                        cells.push(idx);
+                    }
+                    all_places.push(cells);
+                }
+            }
+        }
+
+        placements_by_shape.push(all_places);
+    }
+
+    mut occ: [int] = [];
+    for i in 0..<board_size {
+        occ.push(0);
+    }
+
+    mut remaining: [int] = [];
+    for i in 0..<counts.length() {
+        remaining.push(counts[i]);
+    }
+
+    search(occ, remaining, placements_by_shape, cell_counts, board_size, 0)
+}
+
+solve() = {
+    content = get_file_content();
+    raw_lines: [string] = content.split("\n");
+
+    mut lines: [string] = [];
+    for l in raw_lines {
+        t = trim(l);
+        if t.length() > 0 {
+            lines.push(t);
+        }
+    }
+
+    // ---- Parse shapes (until first region line) ----
+    mut base_coords_by_idx = Map(); // int -> [[int]]
+    mut cell_count_by_idx = Map(); // int -> int
+
+    mut max_idx = -1;
+
+    // For the guaranteed-fit heuristic:
+    // each present fits inside a block of size block_size x block_size
+    mut block_size = 0;
+
+    mut i = 0;
+    while i < lines.length() {
+        line = lines[i];
+        if is_region_line(line) {
+            break;
+        }
+
+        if !is_shape_header_line(line) {
+            i = i + 1;
+            continue;
+        }
+
+        parts = line.split(":");
+        idx_s = trim(parts[0]);
+        shape_idx = idx_s.parse_int();
+        if shape_idx > max_idx {
+            max_idx = shape_idx;
+        }
+
+        i = i + 1;
+        mut diagram: [string] = [];
+        while i < lines.length() {
+            l2 = lines[i];
+            if is_region_line(l2) {
+                break;
+            }
+            if is_shape_header_line(l2) {
+                break;
+            }
+            diagram.push(l2);
+            i = i + 1;
+        }
+
+        // Update block_size using diagram dimensions (safe for rotations by taking max)
+        mut diag_h = diagram.length();
+        mut diag_w = 0;
+        if diag_h > 0 {
+            diag_w = diagram[0].length();
+        }
+        mut box = diag_w;
+        if diag_h > box {
+            box = diag_h;
+        }
+        if box > block_size {
+            block_size = box;
+        }
+
+        mut coords: [[int]] = [];
+        for y in 0..<diagram.length() {
+            row = diagram[y];
+            for x in 0..<row.length() {
+                if row[x] == "#" {
+                    coords.push([x, y]);
+                }
+            }
+        }
+
+        base_coords_by_idx.insert(shape_idx, coords);
+        cell_count_by_idx.insert(shape_idx, coords.length());
+    }
+
+    if max_idx < 0 {
+        print(0);
+        return;
+    }
+
+    num_shapes = max_idx + 1;
+
+    // Build orientation lists + cell counts arrays
+    mut orientations_by_shape: [[[[int]]]] = [];
+    mut cell_counts: [int] = [];
+
+    for s in 0..<num_shapes {
+        if !base_coords_by_idx.has(s) {
+            mut empty_orients: [[[int]]] = [];
+            orientations_by_shape.push(empty_orients);
+            cell_counts.push(0);
+        } else {
+            base = base_coords_by_idx.get(s);
+            orients = generate_orientations(base);
+            orientations_by_shape.push(orients);
+            cell_counts.push(cell_count_by_idx.get(s));
+        }
+    }
+
+    if block_size <= 0 {
+        block_size = 1;
+    }
+
+    // ---- Parse regions + solve ----
+    mut solvable = 0;
+
+    while i < lines.length() {
+        line = lines[i];
+        if !is_region_line(line) {
+            i = i + 1;
+            continue;
+        }
+
+        parts = line.split(":");
+        lhs = trim(parts[0]);
+        rhs = trim(parts[1]);
+
+        dims = lhs.split("x");
+        w = trim(dims[0]).parse_int();
+        h = trim(dims[1]).parse_int();
+
+        nums = rhs.split(" ").filter((s) => s.length() > 0);
+
+        mut counts: [int] = [];
+        for n in nums {
+            counts.push(n.parse_int());
+        }
+
+        while counts.length() < num_shapes {
+            counts.push(0);
+        }
+        if counts.length() > num_shapes {
+            mut trimmed: [int] = [];
+            for k in 0..<num_shapes {
+                trimmed.push(counts[k]);
+            }
+            counts = trimmed;
+        }
+
+        // ---- Heuristic 1: guaranteed fit by packing into block_size x block_size blocks ----
+        mut num_presents = 0;
+        for s in 0..<num_shapes {
+            num_presents = num_presents + counts[s];
+        }
+
+        max_presents_lower_bound = (w / block_size) * (h / block_size);
+        if num_presents <= max_presents_lower_bound {
+            print("Heuristic 1 matched!");
+            solvable = solvable + 1;
+            i = i + 1;
+            continue;
+        }
+
+        // ---- Heuristic 2: area reject using required '#' tiles ----
+        mut required_cells = 0;
+        for s in 0..<num_shapes {
+            required_cells = required_cells + counts[s] * cell_counts[s];
+        }
+
+        if required_cells > w * h {
+            i = i + 1;
+            continue;
+        }
+
+        // ---- Fallback: exact search ----
+        ok = solve_region(w, h, counts, orientations_by_shape, cell_counts);
+        if ok {
+            solvable = solvable + 1;
+            print("Solvable found! Total solvable so far = " + solvable.to_string());
+        } else {
+            print("Unsolvable " + i.to_string());
+        }
+
+        i = i + 1;
+    }
+
+    print("=== Final result ===");
+    print(solvable);
+}
+
+solve();

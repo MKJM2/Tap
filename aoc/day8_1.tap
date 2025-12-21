@@ -69,9 +69,8 @@ solve() = {
     n = boxes.length();
     for i in 0..<n {
         for j in (i+1)..<n {
-            // Using squared distance (as you've already implemented below), which is good.
             dx = boxes[j][0] - boxes[i][0];
-            dy = boxes[j][1] - boxes[i][1]; // Corrected dy index (was boxes[i][2])
+            dy = boxes[j][1] - boxes[i][1];
             dz = boxes[j][2] - boxes[i][2];
 
             d_sq = dx * dx + dy * dy + dz * dz; // Squared distance

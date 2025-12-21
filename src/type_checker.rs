@@ -43,6 +43,7 @@ pub struct TypeEnv {
     scopes: Vec<HashMap<String, SymbolInfo>>,
     functions: HashMap<String, Type>,
     type_definitions: HashMap<String, Type>,
+    return_types: Vec<Type>,
 }
 
 impl TypeEnv {
@@ -51,6 +52,7 @@ impl TypeEnv {
             scopes: vec![HashMap::new()],
             functions: HashMap::new(),
             type_definitions: HashMap::new(),
+            return_types: Vec::new(),
         };
         env.inject_builtins();
         env
@@ -202,46 +204,42 @@ impl TypeChecker {
 
     fn resolve_ast_type(&self, ast_type: &crate::ast::Type) -> Result<Type, TypeError> {
         match ast_type {
-            crate::ast::Type::Primary(primary) => match primary {
-                TypePrimary::Named(name, _) => match name.as_str() {
-                    "int" => Ok(Type::Int),
-                    "float" => Ok(Type::Float),
-                    "string" => Ok(Type::String),
-                    "bool" => Ok(Type::Bool),
-                    "unit" => Ok(Type::Unit),
-                    "any" => Ok(Type::Any),
-                    "inferred" => Ok(Type::Unknown), // Handle parser's placeholder
-                    _ => {
-                        if let Some(ty) = self.env.lookup_type(name) {
-                            Ok(ty.clone())
-                        } else {
-                            Err(TypeError::UnknownType(name.clone()))
-                        }
-                    }
-                },
-                TypePrimary::List(inner, _) => {
-                    let inner_ty = self.resolve_ast_type(inner)?;
-                    Ok(Type::List(Box::new(inner_ty)))
+            crate::ast::Type::Int(_) => Ok(Type::Int),
+            crate::ast::Type::Float(_) => Ok(Type::Float),
+            crate::ast::Type::String(_) => Ok(Type::String),
+            crate::ast::Type::Bool(_) => Ok(Type::Bool),
+            crate::ast::Type::Unit(_) => Ok(Type::Unit),
+            crate::ast::Type::Any(_) => Ok(Type::Any),
+            crate::ast::Type::Inferred(_) => Ok(Type::Unknown), // Handle parser's placeholder
+            crate::ast::Type::Named(name, _) => {
+                if let Some(ty) = self.env.lookup_type(name) {
+                    Ok(ty.clone())
+                } else {
+                    Err(TypeError::UnknownType(name.clone()))
                 }
-                TypePrimary::Record(rec) => {
-                    let mut fields = HashMap::new();
-                    for f in &rec.fields {
-                        fields.insert(f.name.clone(), self.resolve_ast_type(&f.ty)?);
-                    }
-                    Ok(Type::Record(fields))
+            }
+            crate::ast::Type::List(inner, _) => {
+                let inner_ty = self.resolve_ast_type(inner)?;
+                Ok(Type::List(Box::new(inner_ty)))
+            }
+            crate::ast::Type::Record(rec) => {
+                let mut fields = HashMap::new();
+                for f in &rec.fields {
+                    fields.insert(f.name.clone(), self.resolve_ast_type(&f.ty)?);
                 }
-                TypePrimary::Generic { name, args, .. } => match name.as_str() {
-                    "Map" | "map" => {
-                        if args.len() == 2 {
-                            let k = self.resolve_ast_type(&args[0])?;
-                            let v = self.resolve_ast_type(&args[1])?;
-                            Ok(Type::Map(Box::new(k), Box::new(v)))
-                        } else {
-                            Err(TypeError::UnknownType("Map requires 2 arguments".into()))
-                        }
+                Ok(Type::Record(fields))
+            }
+            crate::ast::Type::Generic { name, args, .. } => match name.as_str() {
+                "Map" | "map" => {
+                    if args.len() == 2 {
+                        let k = self.resolve_ast_type(&args[0])?;
+                        let v = self.resolve_ast_type(&args[1])?;
+                        Ok(Type::Map(Box::new(k), Box::new(v)))
+                    } else {
+                        Err(TypeError::UnknownType("Map requires 2 arguments".into()))
                     }
-                    _ => Err(TypeError::UnknownType(format!("Unknown generic {}", name))),
-                },
+                }
+                _ => Err(TypeError::UnknownType(format!("Unknown generic {}", name))),
             },
             crate::ast::Type::Function {
                 params,
@@ -261,7 +259,7 @@ impl TypeChecker {
     fn check_top_statement(&mut self, stmt: &TopStatement) -> Result<(), TypeError> {
         match stmt {
             TopStatement::TypeDecl(_) => Ok(()),
-            TopStatement::LetStmt(stmt) => self.check_let_statement(stmt),
+            TopStatement::LetStmt(stmt) => self.check_let_statement(stmt, None),
             TopStatement::Expression(expr) => {
                 self.check_expr(&expr.expression)?;
                 Ok(())
@@ -269,7 +267,11 @@ impl TypeChecker {
         }
     }
 
-    fn check_let_statement(&mut self, stmt: &LetStatement) -> Result<(), TypeError> {
+    fn check_let_statement(
+        &mut self,
+        stmt: &LetStatement,
+        return_ctx: Option<&Type>,
+    ) -> Result<(), TypeError> {
         match stmt {
             LetStatement::Variable(binding) => {
                 // Check if variable exists in CURRENT scope only (not parent scopes)
@@ -284,7 +286,7 @@ impl TypeChecker {
                     }
                 }
 
-                let val_type = self.check_expr(&binding.value)?;
+                let val_type = self.check_expr_with_context(&binding.value, return_ctx)?;
                 let final_type = if let Some(annotation) = &binding.type_annotation {
                     let declared = self.resolve_ast_type(annotation)?;
                     self.unify(&declared, &val_type)
@@ -319,12 +321,45 @@ impl TypeChecker {
 
                 // Type check function body in its own scope
                 self.env.enter_scope();
-                for (param, p_type) in zip(&func.params, param_types) {
-                    self.env.define_variable(param.name.clone(), p_type, false);
+                for (param, p_type) in zip(&func.params, &param_types) {
+                    // Make parameters mutable by default to allow list modification
+                    self.env.define_variable(param.name.clone(), p_type.clone(), true);
                 }
 
-                let actual_ret = self.check_block(&func.body, Some(&return_type))?;
+                let old_return_types = std::mem::take(&mut self.env.return_types);
+
+                // Check the body - populates return_types vector in typing context for all possible
+                // returns in the function (including implicit return from last stmt)
+                let block_type = self.check_block(&func.body, Some(&return_type))?;
+
+                // Unify the return statements if more than one
+                let actual_ret = if !self.env.return_types.is_empty() {
+                    let mut unified_ret = return_type.clone();
+                    for ret_ty in &self.env.return_types {
+                        unified_ret = self.unify(&unified_ret, ret_ty).ok_or_else(|| {
+                            TypeError::TypeMismatch {
+                                expected: unified_ret.clone(),
+                                actual: ret_ty.clone(),
+                            }
+                        })?;
+                    }
+                    unified_ret
+                } else {
+                    block_type // Implicit return by last stmt
+                };
+
+                // Verify the actual return type matches the declared type
                 self.expect_type(&return_type, &actual_ret)?;
+
+                // If declared return type was Unknown (inferred), update the function signature
+                if return_type == Type::Unknown {
+                    self.env.define_function(
+                        func.name.clone(),
+                        Type::Function(param_types, Box::new(actual_ret)),
+                    );
+                }
+
+                self.env.return_types = old_return_types;
 
                 self.env.exit_scope();
                 Ok(())
@@ -334,17 +369,19 @@ impl TypeChecker {
 
     fn check_stmt(&mut self, stmt: &Statement, return_ctx: Option<&Type>) -> Result<(), TypeError> {
         match stmt {
-            Statement::Let(let_stmt) => self.check_let_statement(let_stmt),
+            Statement::Let(let_stmt) => self.check_let_statement(let_stmt, return_ctx),
             Statement::Expression(expr_stmt) => {
                 self.check_expr_with_context(&expr_stmt.expression, return_ctx)?;
                 Ok(())
             }
             Statement::Return(expr_opt, _) => {
                 let actual = if let Some(expr) = expr_opt {
-                    self.check_expr(expr)?
+                    self.check_expr_with_context(expr, return_ctx)?
                 } else {
                     Type::Unit
                 };
+
+                self.env.return_types.push(actual.clone());
 
                 if let Some(expected) = return_ctx {
                     self.expect_type(expected, &actual)
@@ -358,11 +395,20 @@ impl TypeChecker {
 
     fn check_block(&mut self, block: &Block, return_ctx: Option<&Type>) -> Result<Type, TypeError> {
         self.env.enter_scope();
+        let mut diverges = false;
         for stmt in &block.statements {
             self.check_stmt(stmt, return_ctx)?;
+            match stmt {
+                Statement::Return(..) | Statement::Break(_) | Statement::Continue(_) => {
+                    diverges = true;
+                }
+                _ => {}
+            }
         }
-        let result = if let Some(final_expr) = &block.final_expression {
-            self.check_expr(final_expr)?
+        let result = if diverges {
+            Type::Any
+        } else if let Some(final_expr) = &block.final_expression {
+            self.check_expr_with_context(final_expr, return_ctx)?
         } else {
             Type::Unit
         };
@@ -380,7 +426,7 @@ impl TypeChecker {
         return_ctx: Option<&Type>,
     ) -> Result<Type, TypeError> {
         match expr {
-            Expression::Primary(p) => self.check_primary(p),
+            Expression::Primary(p) => self.check_primary(p, return_ctx),
             Expression::Binary(b) => self.check_binary(b, return_ctx),
             Expression::Unary(u) => self.check_unary(u, return_ctx),
             Expression::If(if_expr) => {
@@ -413,6 +459,7 @@ impl TypeChecker {
                     Type::List(inner) => *inner,
                     Type::Range { .. } => Type::Int,
                     Type::Map(k, _) => *k,
+                    Type::Any | Type::Unknown => Type::Any,
                     _ => {
                         return Err(TypeError::TypeMismatch {
                             expected: Type::List(Box::new(Type::Any)),
@@ -444,6 +491,8 @@ impl TypeChecker {
                     param_types.push(ty);
                 }
 
+                let old_return_types = std::mem::take(&mut self.env.return_types);
+
                 let body_ty = match &l.body {
                     ExpressionOrBlock::Block(b) => self.check_block(b, None)?,
                     ExpressionOrBlock::Expression(e) => self.check_expr_with_context(e, None)?,
@@ -453,6 +502,8 @@ impl TypeChecker {
                     let expected = self.resolve_ast_type(ret_ann)?;
                     self.expect_type(&expected, &body_ty)?;
                 }
+
+                self.env.return_types = old_return_types;
 
                 self.env.exit_scope();
                 Ok(Type::Function(param_types, Box::new(body_ty)))
@@ -558,13 +609,19 @@ impl TypeChecker {
             | BinaryOperator::Multiply
             | BinaryOperator::Divide
             | BinaryOperator::Modulo => {
-                if left == Type::Int && right == Type::Int {
+                // Use unify to handle Unknown types
+                let is_int = self.unify(&left, &Type::Int).is_some()
+                    && self.unify(&right, &Type::Int).is_some();
+                let is_float = self.unify(&left, &Type::Float).is_some()
+                    && self.unify(&right, &Type::Float).is_some();
+
+                if is_int {
                     Ok(Type::Int)
-                } else if left == Type::Float && right == Type::Float {
+                } else if is_float {
                     Ok(Type::Float)
                 } else if b.operator == BinaryOperator::Add
-                    && left == Type::String
-                    && right == Type::String
+                    && self.unify(&left, &Type::String).is_some()
+                    && self.unify(&right, &Type::String).is_some()
                 {
                     Ok(Type::String)
                 } else {
@@ -588,9 +645,12 @@ impl TypeChecker {
             | BinaryOperator::LessThanEqual
             | BinaryOperator::GreaterThan
             | BinaryOperator::GreaterThanEqual => {
-                if (left == Type::Int && right == Type::Int)
-                    || (left == Type::Float && right == Type::Float)
-                {
+                let is_int = self.unify(&left, &Type::Int).is_some()
+                    && self.unify(&right, &Type::Int).is_some();
+                let is_float = self.unify(&left, &Type::Float).is_some()
+                    && self.unify(&right, &Type::Float).is_some();
+
+                if is_int || is_float {
                     Ok(Type::Bool)
                 } else {
                     Err(TypeError::TypeMismatch {
@@ -632,7 +692,11 @@ impl TypeChecker {
         }
     }
 
-    fn check_primary(&mut self, p: &PrimaryExpression) -> Result<Type, TypeError> {
+    fn check_primary(
+        &mut self,
+        p: &PrimaryExpression,
+        return_ctx: Option<&Type>,
+    ) -> Result<Type, TypeError> {
         match p {
             PrimaryExpression::Literal(lit, _) => match lit {
                 LiteralValue::Integer(_) => Ok(Type::Int),
@@ -645,14 +709,14 @@ impl TypeChecker {
                 .env
                 .lookup_callable(name)
                 .ok_or_else(|| TypeError::UndefinedVariable(name.clone())),
-            PrimaryExpression::Parenthesized(e, _) => self.check_expr(e),
+            PrimaryExpression::Parenthesized(e, _) => self.check_expr_with_context(e, return_ctx),
             PrimaryExpression::List(l) => {
                 if l.elements.is_empty() {
                     return Ok(Type::List(Box::new(Type::Unknown)));
                 }
-                let first_ty = self.check_expr(&l.elements[0])?;
+                let first_ty = self.check_expr_with_context(&l.elements[0], return_ctx)?;
                 for e in &l.elements[1..] {
-                    let ty = self.check_expr(e)?;
+                    let ty = self.check_expr_with_context(e, return_ctx)?;
                     if self.unify(&first_ty, &ty).is_none() {
                         return Err(TypeError::TypeMismatch {
                             expected: Type::List(Box::new(first_ty)),
@@ -665,7 +729,7 @@ impl TypeChecker {
             PrimaryExpression::Record(r) => {
                 let mut fields = HashMap::new();
                 for f in &r.fields {
-                    let ty = self.check_expr(&f.value)?;
+                    let ty = self.check_expr_with_context(&f.value, return_ctx)?;
                     fields.insert(f.name.clone(), ty);
                 }
                 Ok(Type::Record(fields))
@@ -731,32 +795,7 @@ impl TypeChecker {
                             }
 
                             // Refine return type for generic methods
-                            let refined_ret_type = if idx == 1 {
-                                if let Some(PostfixOperator::FieldAccess {
-                                    name: method_name,
-                                    ..
-                                }) = p.operators.get(0)
-                                {
-                                    match method_name.as_str() {
-                                        "insert" if actual_arg_types.len() == 2 => {
-                                            // For Map.insert(K, V), return type should be Map<K, V>
-                                            Type::Map(
-                                                Box::new(actual_arg_types[0].clone()),
-                                                Box::new(actual_arg_types[1].clone()),
-                                            )
-                                        }
-                                        "push" | "append" if actual_arg_types.len() == 1 => {
-                                            // For List.push(T), return type should be List<T>
-                                            Type::List(Box::new(actual_arg_types[0].clone()))
-                                        }
-                                        _ => *ret_type.clone(),
-                                    }
-                                } else {
-                                    *ret_type.clone()
-                                }
-                            } else {
-                                *ret_type.clone()
-                            };
+                            let refined_ret_type = *ret_type.clone();
 
                             // Type refinement for mutating methods on variables
                             if idx == 1 {
@@ -770,23 +809,53 @@ impl TypeChecker {
                                             method_name.as_str(),
                                             "insert" | "push" | "append"
                                         ) {
+                                            // For mutation methods, we might want to refine the COLLECTION's type
+                                            // based on what's being inserted, but the method call ITSELF returns Unit.
                                             if let Some(info) = self.env.lookup_variable(var_name) {
                                                 if info.mutable {
-                                                    // Try to unify the variable's current type with refined return type
-                                                    if let Some(unified_ty) =
-                                                        self.unify(&info.ty, &refined_ret_type)
-                                                    {
+                                                    // Get the argument types to potentially refine the collection type
+                                                    // E.g. if we push an Int into List<Unknown>, it becomes List<Int>
+                                                    let refined_collection_ty = match (
+                                                        &info.ty,
+                                                        method_name.as_str(),
+                                                    ) {
+                                                        (Type::List(inner), "push" | "append")
+                                                            if actual_arg_types.len() == 1 =>
+                                                        {
+                                                            if let Some(new_inner) = self
+                                                                .unify(inner, &actual_arg_types[0])
+                                                            {
+                                                                Some(Type::List(Box::new(
+                                                                    new_inner,
+                                                                )))
+                                                            } else {
+                                                                None
+                                                            }
+                                                        }
+                                                        (Type::Map(k, v), "insert")
+                                                            if actual_arg_types.len() == 2 =>
+                                                        {
+                                                            if let (Some(new_k), Some(new_v)) = (
+                                                                self.unify(k, &actual_arg_types[0]),
+                                                                self.unify(v, &actual_arg_types[1]),
+                                                            ) {
+                                                                Some(Type::Map(
+                                                                    Box::new(new_k),
+                                                                    Box::new(new_v),
+                                                                ))
+                                                            } else {
+                                                                None
+                                                            }
+                                                        }
+                                                        _ => None,
+                                                    };
+
+                                                    if let Some(new_ty) = refined_collection_ty {
                                                         self.env.define_variable(
                                                             var_name.clone(),
-                                                            unified_ty,
+                                                            new_ty,
                                                             true,
                                                         );
-                                                    } else {
-                                                        // Unification failed - type mismatch
-                                                        return Err(TypeError::TypeMismatch {
-                                                            expected: info.ty.clone(),
-                                                            actual: refined_ret_type.clone(),
-                                                        });
                                                     }
                                                 }
                                             }
@@ -797,8 +866,8 @@ impl TypeChecker {
 
                             current_ty = refined_ret_type;
                         }
-                        Type::Any => {
-                            current_ty = Type::Any;
+                        Type::Any | Type::Unknown => {
+                            current_ty = Type::Unknown;
                         }
                         _ => return Err(TypeError::NotAFunction(current_ty)),
                     }
@@ -812,6 +881,9 @@ impl TypeChecker {
                                     field: name.clone(),
                                 }
                             })?;
+                        }
+                        Type::Any | Type::Unknown => {
+                            current_ty = Type::Unknown;
                         }
                         // Use builtin method types
                         _ => {
@@ -829,6 +901,7 @@ impl TypeChecker {
                     match current_ty {
                         Type::List(inner) => current_ty = *inner,
                         Type::String => current_ty = Type::String,
+                        Type::Any | Type::Unknown => current_ty = Type::Unknown,
                         _ => {
                             return Err(TypeError::TypeMismatch {
                                 expected: Type::List(Box::new(Type::Any)),

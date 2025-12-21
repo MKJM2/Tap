@@ -615,10 +615,7 @@ impl<'a> Parser<'a> {
         let return_type = if self.maybe_consume(&[TokenType::Colon]) {
             self.parse_type()?
         } else {
-            Type::Primary(TypePrimary::Named(
-                "unit".to_string(),
-                Span { start: 0, end: 0 },
-            ))
+            Type::Inferred(Span { start: 0, end: 0 })
         };
 
         self.consume(
@@ -649,20 +646,44 @@ impl<'a> Parser<'a> {
             let return_type = self.parse_type()?;
             let span = Span::new(primary.span().start, return_type.span().end);
             return Ok(Type::Function {
-                params: vec![Type::Primary(primary)],
+                params: vec![primary],
                 return_type: Box::new(return_type),
                 span,
             });
         }
 
-        Ok(Type::Primary(primary))
+        Ok(primary)
     }
 
-    fn parse_type_primary(&mut self) -> Result<TypePrimary, ParseError> {
+    fn parse_type_primary(&mut self) -> Result<Type, ParseError> {
         let token = self.peek().clone();
         let span = token.span;
 
         match &token.token_type {
+            TokenType::KeywordInt => {
+                self.advance();
+                Ok(Type::Int(span))
+            }
+            TokenType::KeywordFloat => {
+                self.advance();
+                Ok(Type::Float(span))
+            }
+            TokenType::KeywordString => {
+                self.advance();
+                Ok(Type::String(span))
+            }
+            TokenType::KeywordBool => {
+                self.advance();
+                Ok(Type::Bool(span))
+            }
+            TokenType::KeywordUnit => {
+                self.advance();
+                Ok(Type::Unit(span))
+            }
+            TokenType::KeywordAny => {
+                self.advance();
+                Ok(Type::Any(span))
+            }
             TokenType::Identifier(name) => {
                 let name = name.clone();
                 self.advance();
@@ -681,13 +702,13 @@ impl<'a> Parser<'a> {
                         "Expected ']' after generic type arguments.",
                         None,
                     )?;
-                    Ok(TypePrimary::Generic {
+                    Ok(Type::Generic {
                         name,
                         args,
                         span: Span::new(span.start, self.previous().span.end),
                     })
                 } else {
-                    Ok(TypePrimary::Named(name, span))
+                    Ok(Type::Named(name, span))
                 }
             }
             TokenType::OpenBracket => {
@@ -699,14 +720,14 @@ impl<'a> Parser<'a> {
                     "Expected ']' after list type.",
                     None,
                 )?;
-                Ok(TypePrimary::List(
+                Ok(Type::List(
                     Box::new(inner_type),
                     Span::new(span.start, self.previous().span.end),
                 ))
             }
             TokenType::OpenBrace => {
                 let record_type = self.parse_record_type()?;
-                Ok(TypePrimary::Record(record_type))
+                Ok(Type::Record(record_type))
             }
             _ => {
                 let msg = format!("Expected type, but found {:?}.", token.token_type);
@@ -770,7 +791,7 @@ impl<'a> Parser<'a> {
                         params: params
                             .iter()
                             .map(|p| {
-                                Type::Primary(TypePrimary::Named(format!("{}", p.name), p.span))
+                                Type::Named(format!("{}", p.name), p.span)
                             })
                             .collect(),
                         return_type: Box::new(return_type),
@@ -952,13 +973,32 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_logical_and_expression(&mut self) -> Result<Expression, ParseError> {
-        let mut expr = self.parse_equality_expression()?;
+        let mut expr = self.parse_bitwise_xor_expression()?;
         while self.maybe_consume(&[TokenType::AmpAmp]) {
-            let right = self.parse_equality_expression()?;
+            let right = self.parse_bitwise_xor_expression()?;
             let span = Span::new(expr.span().start, right.span().end);
             expr = Expression::Binary(BinaryExpression {
                 left: Box::new(expr),
                 operator: BinaryOperator::And,
+                right: Box::new(right),
+                span,
+            });
+        }
+        Ok(expr)
+    }
+
+    fn parse_bitwise_xor_expression(&mut self) -> Result<Expression, ParseError> {
+        let _ctx = self.context("bitwise xor expression");
+
+        let mut expr = self.parse_equality_expression()?;
+
+        while self.maybe_consume(&[TokenType::Caret]) {
+            // let operator_token = self.previous().clone();
+            let right = self.parse_equality_expression()?;
+            let span = Span::new(expr.span().start, right.span().end);
+            expr = Expression::Binary(BinaryExpression {
+                left: Box::new(expr),
+                operator: BinaryOperator::Xor,
                 right: Box::new(right),
                 span,
             });
@@ -1523,15 +1563,17 @@ impl<'a> Parser<'a> {
 
         let start_token = self.advance().clone();
 
-        self.consume(TokenType::OpenParen, "Expected '(' after 'while'.", None)?;
+        let has_open_paren = self.maybe_consume(&[TokenType::OpenParen]);
 
         let condition = self.parse_expression()?;
 
-        self.consume(
-            TokenType::CloseParen,
-            "Expected ')' after while condition.",
-            None,
-        )?;
+        if has_open_paren {
+            self.consume(
+                TokenType::CloseParen,
+                "Expected ')' after while condition.",
+                None,
+            )?;
+        }
 
         let body = self.parse_block()?;
         let span = Span::new(start_token.span.start, body.span.end);
@@ -1642,10 +1684,7 @@ impl<'a> Parser<'a> {
         let return_type = if self.maybe_consume(&[TokenType::Colon]) {
             self.parse_type()?
         } else {
-            Type::Primary(TypePrimary::Named(
-                "unit".to_string(),
-                Span { start: 0, end: 0 },
-            ))
+            Type::Inferred(Span { start: 0, end: 0 })
         };
 
         self.consume(
@@ -1707,7 +1746,7 @@ impl<'a> Parser<'a> {
                 self.parse_type()?
             } else {
                 // No type annotation - use a placeholder or inferred type
-                Type::Primary(TypePrimary::Named("inferred".to_string(), name_token.span))
+                Type::Inferred(name_token.span)
             };
 
             let span = Span::new(name_token.span.start, type_.span().end);

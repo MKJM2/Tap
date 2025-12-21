@@ -1,0 +1,241 @@
+get_file_content(): string = {
+    file = open(args.get(0), "r");
+    content: string = file.read();
+    file.close();
+    content
+}
+
+substr(s, start, end): string = {
+    mut res = "";
+    mut i = start;
+    for i in start..<end {
+        res = res + s[i];
+    }
+    res
+}
+
+// Global best tracker
+mut best_solution = 99999999;
+
+solve_free_vars(idx, free_vars, pivoted_vars, mat, num_vars, assigned_map, current_cost, bounds) = {
+    if current_cost >= best_solution {
+        return 0;
+    }
+
+    if idx >= free_vars.length() {
+        // All free variables assigned, derive pivots
+        mut valid = true;
+        mut derived_cost = 0;
+
+        mut c = 0;
+        for c in 0..<num_vars {
+            if pivoted_vars.has(c) {
+                r = pivoted_vars.get(c);
+                row = mat[r];
+                coeff = row[c];
+                rhs = row[num_vars];
+
+                mut sum_others = 0;
+                mut f = 0;
+                for f in 0..<free_vars.length() {
+                    fv_idx = free_vars[f];
+                    fv_val = assigned_map.get(fv_idx);
+                    sum_others = sum_others + (row[fv_idx] * fv_val);
+                }
+
+                numerator = rhs - sum_others;
+
+                if coeff == 0 {
+                    if numerator != 0 { valid = false; }
+                } else {
+                    if numerator % coeff != 0 {
+                        valid = false;
+                    } else {
+                        val = numerator / coeff;
+                        if val < 0 {
+                            valid = false;
+                        } else {
+                            derived_cost = derived_cost + val;
+                        }
+                    }
+                }
+            }
+            if !valid { break; }
+        }
+
+        if valid {
+            total = current_cost + derived_cost;
+            if total < best_solution {
+                best_solution = total;
+            }
+        }
+        return 0;
+    }
+
+    // Try values for free variable
+    fv_idx = free_vars[idx];
+    bound = bounds.get(fv_idx);
+
+    // heur: try smaller values first for min presses?
+    mut val = 0;
+    for val in 0..<(bound + 1) {
+        assigned_map.insert(fv_idx, val);
+        solve_free_vars(idx + 1, free_vars, pivoted_vars, mat, num_vars, assigned_map, current_cost + val, bounds);
+    }
+}
+
+solve_system(buttons, targets): int = {
+    rows = targets.length();
+    cols = buttons.length();
+
+    // Augmented Matrix
+    mut mat = [];
+    mut r = 0;
+    for r in 0..<rows {
+        mut row = [];
+        mut c = 0;
+        for c in 0..<cols {
+            row.push(buttons[c][r]);
+        }
+        row.push(targets[r]);
+        mat.push(row);
+    }
+
+    // Gaussian Elimination
+    mut pivot_row = 0;
+    mut pivoted_vars = Map();
+    mut free_vars: [int] = [];
+
+    mut c = 0;
+    for c in 0..<cols {
+        if pivot_row >= rows {
+            free_vars.push(c);
+        } else {
+            mut sel = -1;
+            mut check_r = pivot_row;
+            mut searching = true;
+            while searching {
+                if check_r >= rows { searching = false; }
+                else {
+                    if mat[check_r][c] != 0 {
+                        sel = check_r;
+                        searching = false;
+                    }
+                    check_r = check_r + 1;
+                }
+            }
+
+            if sel == -1 {
+                free_vars.push(c);
+            } else {
+                if sel != pivot_row {
+                    temp = mat[sel];
+                    mat[sel] = mat[pivot_row];
+                    mat[pivot_row] = temp;
+                }
+
+                pivot_val = mat[pivot_row][c];
+                mut elim_r = 0;
+                for elim_r in 0..<rows {
+                    if elim_r != pivot_row {
+                        if mat[elim_r][c] != 0 {
+                            factor = mat[elim_r][c];
+                            mut new_row = [];
+                            mut k = 0;
+                            p_row = mat[pivot_row];
+                            e_row = mat[elim_r];
+                            limit = cols + 1;
+                            for k in 0..<limit {
+                                val = (e_row[k] * pivot_val) - (p_row[k] * factor);
+                                new_row.push(val);
+                            }
+                            mat[elim_r] = new_row;
+                        }
+                    }
+                }
+                pivoted_vars.insert(c, pivot_row);
+                pivot_row = pivot_row + 1;
+            }
+        }
+    }
+
+    // Determine Bounds
+    mut bounds = Map();
+    mut f_idx = 0;
+    for f_idx in 0..<free_vars.length() {
+        fv = free_vars[f_idx];
+        mut limit = 1000; // Increase safety cap
+
+        // Simple bound: cannot exceed target
+        // Since coeff is positive integers
+        mut i = 0;
+        col_vec = buttons[fv];
+        for i in 0..<rows {
+            if col_vec[i] > 0 {
+                possible = targets[i] / col_vec[i];
+                if possible < limit { limit = possible; }
+            }
+        }
+        bounds.insert(fv, limit);
+    }
+
+    best_solution = 99999999;
+    solve_free_vars(0, free_vars, pivoted_vars, mat, cols, Map(), 0, bounds);
+
+    if best_solution == 99999999 {
+        return -1;
+    }
+    best_solution
+}
+
+solve() = {
+    content = get_file_content();
+    lines: [string] = content.split("\n").filter((l) => l.length() > 0);
+    mut grand_total = 0;
+
+    for line in lines {
+        parts = line.split(" ").filter((s) => s.length() > 0);
+        mut target_part = "";
+        mut btn_parts: [string] = [];
+        for p in parts {
+            if p[0] == "{" { target_part = p; }
+            else { if p[0] == "(" { btn_parts.push(p); } }
+        }
+        inner_t = substr(target_part, 1, target_part.length() - 1);
+        t_strs = inner_t.split(",");
+        mut targets: [int] = [];
+        for t in t_strs { targets.push(t.parse_int()); }
+
+        num_counters = targets.length();
+        mut buttons: [[int]] = [];
+        for b_str in btn_parts {
+            inner_b = substr(b_str, 1, b_str.length() - 1);
+            b_idxs = inner_b.split(",");
+            mut btn_vec: [int] = [];
+            for k in 0..<num_counters { btn_vec.push(0); }
+            for idx_s in b_idxs {
+                if idx_s.length() > 0 {
+                    idx = idx_s.parse_int();
+                    if idx < num_counters {
+                        mut new_vec: [int] = [];
+                        mut k = 0;
+                        for k in 0..<num_counters {
+                            val = btn_vec[k];
+                            if k == idx { val = val + 1; }
+                            new_vec.push(val);
+                        }
+                        btn_vec = new_vec;
+                    }
+                }
+            }
+            buttons.push(btn_vec);
+        }
+
+        presses = solve_system(buttons, targets);
+        if presses != -1 { grand_total = grand_total + presses; }
+        else { print("No solution: " + line); }
+    }
+    print("Fewest total presses: " + grand_total.to_string());
+}
+
+solve();
