@@ -774,11 +774,16 @@ fn get_list_method_type(inner: &Type, method: &str) -> Option<Type> {
             }
         }
         "map" => {
-            // map: (T -> U) -> List<U>
-            // For simplicity, we'll use Any for the result type
-            Some(Type::Function(
-                vec![Type::Function(vec![inner.clone()], Box::new(Type::Any))],
-                Box::new(Type::List(Box::new(Type::Any))),
+            // map: <U> (T -> U) -> List<U>
+            Some(Type::Poly(
+                vec!["U".to_string()],
+                Box::new(Type::Function(
+                    vec![Type::Function(
+                        vec![inner.clone()],
+                        Box::new(Type::TypeVar("U".to_string())),
+                    )],
+                    Box::new(Type::List(Box::new(Type::TypeVar("U".to_string())))),
+                )),
             ))
         }
         "filter" => {

@@ -518,7 +518,6 @@ assert_types_ok!(
 "
 );
 
-/*
 assert_types_err!(
     test_lambda_body_mismatch,
     "
@@ -529,7 +528,6 @@ assert_types_err!(
 ",
     TypeError::TypeMismatch { .. }
 );
-*/
 
 assert_types_ok!(
     test_function_variable,

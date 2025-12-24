@@ -119,14 +119,97 @@ impl TypeEnv {
     }
 }
 
+pub type Substitution = HashMap<String, Type>;
+
 pub struct TypeChecker {
     env: TypeEnv,
+    subst: Substitution,
+    fresh_id_counter: usize,
 }
 
 impl TypeChecker {
     pub fn new() -> Self {
         TypeChecker {
             env: TypeEnv::new(),
+            subst: HashMap::new(),
+            fresh_id_counter: 0,
+        }
+    }
+
+    fn fresh_type_var(&mut self, prefix: &str) -> Type {
+        self.fresh_id_counter += 1;
+        Type::TypeVar(format!("{}_{}", prefix, self.fresh_id_counter))
+    }
+
+    fn instantiate(&mut self, t: Type) -> Type {
+        if let Type::Poly(vars, inner) = t {
+            let mut mapping = HashMap::new();
+            for var in vars {
+                mapping.insert(var.clone(), self.fresh_type_var(&var));
+            }
+            self.apply_mapping(*inner, &mapping)
+        } else {
+            t
+        }
+    }
+
+    fn apply_mapping(&self, t: Type, mapping: &HashMap<String, Type>) -> Type {
+        match t {
+            Type::TypeVar(ref n) => {
+                if let Some(replacement) = mapping.get(n) {
+                    replacement.clone()
+                } else {
+                    t
+                }
+            }
+            Type::List(inner) => Type::List(Box::new(self.apply_mapping(*inner, mapping))),
+            Type::Map(k, v) => Type::Map(
+                Box::new(self.apply_mapping(*k, mapping)),
+                Box::new(self.apply_mapping(*v, mapping)),
+            ),
+            Type::Function(params, ret) => Type::Function(
+                params.into_iter().map(|p| self.apply_mapping(p, mapping)).collect(),
+                Box::new(self.apply_mapping(*ret, mapping)),
+            ),
+            Type::Record(fields) => {
+                let mut new_fields = HashMap::new();
+                for (k, v) in fields {
+                    new_fields.insert(k, self.apply_mapping(v, mapping));
+                }
+                Type::Record(new_fields)
+            }
+            // Poly nested? Skip for now
+            _ => t,
+        }
+    }
+
+    fn apply_subst(&self, t: Type) -> Type {
+        match t {
+            Type::TypeVar(ref n) => {
+                if let Some(replacement) = self.subst.get(n) {
+                    self.apply_subst(replacement.clone())
+                } else {
+                    t
+                }
+            }
+            Type::List(inner) => Type::List(Box::new(self.apply_subst(*inner))),
+            Type::Map(k, v) => Type::Map(Box::new(self.apply_subst(*k)), Box::new(self.apply_subst(*v))),
+            Type::Function(params, ret) => Type::Function(
+                params.into_iter().map(|p| self.apply_subst(p)).collect(),
+                Box::new(self.apply_subst(*ret)),
+            ),
+            Type::Record(fields) => {
+                let mut new_fields = HashMap::new();
+                for (k, v) in fields {
+                    new_fields.insert(k, self.apply_subst(v));
+                }
+                Type::Record(new_fields)
+            }
+            Type::Poly(vars, inner) => {
+                // TODO: Handle bound variables properly to avoid capture
+                Type::Poly(vars, Box::new(self.apply_subst(*inner)))
+            }
+            _ => t,
         }
     }
 
@@ -335,7 +418,8 @@ impl TypeChecker {
                 // Unify the return statements if more than one
                 let actual_ret = if !self.env.return_types.is_empty() {
                     let mut unified_ret = return_type.clone();
-                    for ret_ty in &self.env.return_types {
+                    let return_types = self.env.return_types.clone();
+                    for ret_ty in &return_types {
                         unified_ret = self.unify(&unified_ret, ret_ty).ok_or_else(|| {
                             TypeError::TypeMismatch {
                                 expected: unified_ret.clone(),
@@ -766,6 +850,11 @@ impl TypeChecker {
         for (idx, op) in p.operators.iter().enumerate() {
             match op {
                 PostfixOperator::Call { args, .. } => {
+                    // Instantiate generic functions
+                    if let Type::Poly(..) = current_ty {
+                        current_ty = self.instantiate(current_ty);
+                    }
+
                     match current_ty.clone() {
                         Type::Function(param_types, ret_type) => {
                             if args.len() != param_types.len() {
@@ -811,7 +900,8 @@ impl TypeChecker {
                                         ) {
                                             // For mutation methods, we might want to refine the COLLECTION's type
                                             // based on what's being inserted, but the method call ITSELF returns Unit.
-                                            if let Some(info) = self.env.lookup_variable(var_name) {
+                                            let info_opt = self.env.lookup_variable(var_name).cloned();
+                                            if let Some(info) = info_opt {
                                                 if info.mutable {
                                                     // Get the argument types to potentially refine the collection type
                                                     // E.g. if we push an Int into List<Unknown>, it becomes List<Int>
@@ -962,33 +1052,48 @@ impl TypeChecker {
         }
     }
 
-    fn expect_type(&self, expected: &Type, actual: &Type) -> Result<(), TypeError> {
+    fn expect_type(&mut self, expected: &Type, actual: &Type) -> Result<(), TypeError> {
         if self.unify(expected, actual).is_some() {
             Ok(())
         } else {
+            let expected = self.apply_subst(expected.clone());
+            let actual = self.apply_subst(actual.clone());
             Err(TypeError::TypeMismatch {
-                expected: expected.clone(),
-                actual: actual.clone(),
+                expected,
+                actual,
             })
         }
     }
 
-    fn unify(&self, t1: &Type, t2: &Type) -> Option<Type> {
+    fn unify(&mut self, t1: &Type, t2: &Type) -> Option<Type> {
+        let t1 = self.apply_subst(t1.clone());
+        let t2 = self.apply_subst(t2.clone());
+
         if t1 == t2 {
-            return Some(t1.clone());
+            return Some(t1);
         }
-        match (t1, t2) {
-            (Type::Any, _) => Some(t2.clone()),
-            (_, Type::Any) => Some(t1.clone()),
-            (Type::Unknown, _) => Some(t2.clone()),
-            (_, Type::Unknown) => Some(t1.clone()),
+        match (t1.clone(), t2.clone()) {
+            (Type::TypeVar(n), t) | (t, Type::TypeVar(n)) => {
+                if let Type::TypeVar(n2) = &t {
+                    if n == *n2 {
+                        return Some(t);
+                    }
+                }
+                // Simple occurs check could go here
+                self.subst.insert(n, t.clone());
+                Some(t)
+            }
+            (Type::Any, _) => Some(t2),
+            (_, Type::Any) => Some(t1),
+            (Type::Unknown, _) => Some(t2),
+            (_, Type::Unknown) => Some(t1),
             (Type::List(i1), Type::List(i2)) => {
-                let inner = self.unify(i1, i2)?;
+                let inner = self.unify(&i1, &i2)?;
                 Some(Type::List(Box::new(inner)))
             }
             (Type::Map(k1, v1), Type::Map(k2, v2)) => {
-                let key = self.unify(k1, k2)?;
-                let val = self.unify(v1, v2)?;
+                let key = self.unify(&k1, &k2)?;
+                let val = self.unify(&v1, &v2)?;
                 Some(Type::Map(Box::new(key), Box::new(val)))
             }
             (Type::Record(f1), Type::Record(f2)) => {
@@ -997,8 +1102,8 @@ impl TypeChecker {
                 }
                 let mut unified_fields = HashMap::new();
                 for (name, ty1) in f1 {
-                    if let Some(ty2) = f2.get(name) {
-                        unified_fields.insert(name.clone(), self.unify(ty1, ty2)?);
+                    if let Some(ty2) = f2.get(&name) {
+                        unified_fields.insert(name.clone(), self.unify(&ty1, ty2)?);
                     } else {
                         return None;
                     }
@@ -1013,7 +1118,7 @@ impl TypeChecker {
                 for (pt1, pt2) in p1.iter().zip(p2.iter()) {
                     unified_params.push(self.unify(pt1, pt2)?);
                 }
-                let unified_ret = self.unify(r1, r2)?;
+                let unified_ret = self.unify(&r1, &r2)?;
                 Some(Type::Function(unified_params, Box::new(unified_ret)))
             }
             _ => None,

@@ -18,6 +18,10 @@ pub enum Type {
 
     Range(Box<Type>),
 
+    // For type inference
+    TypeVar(String),
+    Poly(Vec<String>, Box<Type>), // Polymorphic type (Scheme): <T, U> Type
+
     // TODO: Do we need these? For type inference algo..?
     Unknown,
     Any,
