@@ -4,7 +4,11 @@ use reedline::{FileBackedHistory, Reedline, Signal};
 use std::fs;
 use std::path::PathBuf;
 use tap::{
-    diagnostics::Reporter, interpreter::Interpreter, lexer::Lexer, parser::Parser, prompt::Prompt,
+    diagnostics::Reporter,
+    interpreter::Interpreter,
+    lexer::Lexer,
+    parser::Parser,
+    prompt::Prompt,
 };
 
 #[derive(CLAParser)]
@@ -194,6 +198,14 @@ fn execute_repl_line(
             reporter.format_diagnostics(input)
         ));
     }
+
+    // Don't type check if `--no-type-check` was specified
+    // todo!("Type check");
+    // TypeChecker::new().check_program(&program);
+    //
+    // Potentially, typechecker should be passed as param,
+    // so as to be able to be mutated between different lines
+    //  in the REPL to maintain typing context across the session
 
     // Interpret
     match interpreter.interpret(&program) {

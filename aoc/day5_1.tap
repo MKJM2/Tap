@@ -1,0 +1,101 @@
+get_file_content(): string = {
+    // `args` is a built-in injected into global env by interpreter runtime
+    file = open(args.get(0), "r");
+    content: string = file.read();
+    file.close();
+    content
+}
+
+parse_range_line(line: string): [int] = {
+    mut start = -1;
+    mut end = -1;
+    chars = line.split("-");
+    for ch in chars {
+        if ch == "" {
+            continue;
+        }
+        if (start == -1) {
+            start = ch.parse_int();
+        } else {
+            end = ch.parse_int();
+        }
+    }
+    // TODO: Fix returning array literal:
+    //       ❯ tap day5_1.tap test_input_day4.txt
+    // Error: Parse errors:
+    // Error at line 23, column 11 (program -> top-level statement -> function declaration -> block -> expression -> list index): Expected ']' after index. Found Comma instead.
+    //   |     [start, end]
+    //   |           ^
+    res = [start, end];
+    res
+}
+
+// Parse all lines into a list of ranges & IDs
+solve(content: string) = {
+    mut lines = [];
+    lines = content.split("\n");
+
+    mut split_idx = -1;
+    mut idx = 0;
+    for line in lines {
+        trimmed = line.trim();
+        if (trimmed.length() == 0) {
+            split_idx = idx;
+            break;
+        }
+        idx += 1;
+    }
+
+
+    // now parse ranges
+    mut i = 0;
+    ranges: [[int]] = [];
+    while (i < split_idx) {
+        line = lines[i].trim();
+        if (line.length() > 0) {
+            range = parse_range_line(line);
+            ranges.push(range);
+        }
+        i += 1;
+    }
+
+    // parse IDs
+    ids: [int] = [];
+    while (i < lines.length()) {
+        line = lines[i].trim();
+        if (line.length() > 0) {
+            id = line.parse_int();
+            ids.push(id);
+        }
+        i += 1;
+    }
+
+    print(ranges);
+    print(ids);
+
+    mut res = 0;
+    for id in ids {
+        mut found = false;
+        for range in ranges {
+            start = range[0];
+            end = range[1];
+            if (id >= start && id <= end) {
+                found = true;
+                break;
+            }
+        }
+        if found {
+            res += 1;
+        }
+    }
+    res
+}
+
+main(): int = {
+    content = get_file_content();
+    res = solve(content);
+    print("-----RESULT-----");
+    print(res);
+}
+
+main();

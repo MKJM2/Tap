@@ -1,0 +1,139 @@
+get_file_content(): string = {
+    // `args` is a built-in injected into global env by interpreter runtime
+    file = open(args.get(0), "r");
+    content: string = file.read();
+    file.close();
+    content
+}
+
+dist(box1, box2) : float = {
+    dx = box2[0] - box1[0];
+    dy = box2[1] - box1[1];
+    dz = box2[2] - box1[2];
+
+    dx * dx + dy * dy + dz * dz // Returns squared distance
+}
+
+min(a: int, b: int) : int = {
+    if a <= b {
+        a
+    } else {
+        b
+    }
+}
+
+solve() = {
+    print("Reading file...");
+    content = get_file_content();
+
+    raw_lines: [string] = content.split("\n");
+    mut lines: [string] = [];
+
+    for l in raw_lines {
+        if l.length() > 0 {
+            lines.push(l);
+        }
+    }
+
+    mut boxes: [[int]] = [];
+    for l in lines {
+        parts = l.split(",");
+        mut coords = [];
+        for p in parts {
+            if p.length() > 0 {
+                coords.push(p.parse_int());
+            }
+        }
+        boxes.push(coords);
+    }
+
+    n = boxes.length();
+    print("Number of junction boxes: " + n.to_string());
+
+    // --- Calculate ALL distances for both parts ---
+    mut all_distances = [];
+    print("Calculating all distances (this may take a while)...");
+
+    for i in 0..<n {
+        l = boxes[i];
+        for j in (i+1)..<n {
+            r = boxes[j];
+            dx = l[0] - r[0];
+            dy = l[1] - r[1];
+            dz = l[2] - r[2];
+            all_distances.push([dx * dx + dy * dy + dz * dz, i, j]);
+        }
+        print("Distance Calc Progress: " + i.to_string() + "/" + n.to_string());
+    }
+
+    print("Sorting all distances...");
+    // Sort all distances in ascending order.
+    all_distances.sort((a, b) => { (a[0] - b[0]) });
+    print("Sorting complete. Total edges: " + all_distances.length().to_string());
+
+    print("Starting Part 2 Logic...");
+
+    // Re-Initialize DSU state for Part 2
+    mut parent_p2: [int] = [];
+    mut size_p2: [int] = [];
+    for k in 0..<n {
+        parent_p2.push(k);
+        size_p2.push(1);
+    }
+    mut num_active_circuits = n;
+    mut last_unifying_x_product: int = 0;
+
+    mut processed_edges_count = 0;
+
+    for edge in all_distances {
+        processed_edges_count += 1;
+
+        l = edge[1];
+        r = edge[2];
+
+        // --- Inlined Find(l) ---
+        mut root_l = l;
+        while (parent_p2[root_l] != root_l) {
+            root_l = parent_p2[root_l];
+        }
+
+        // --- Inlined Find(r) ---
+        mut root_r = r;
+        while (parent_p2[root_r] != root_r) {
+            root_r = parent_p2[root_r];
+        }
+
+        // --- Inlined Union(l, r) ---
+        if root_l != root_r {
+            // Union by size
+            if size_p2[root_l] < size_p2[root_r] {
+                temp = root_l;
+                root_l = root_r;
+                root_r = temp;
+            }
+            parent_p2[root_r] = root_l;
+            size_p2[root_l] += size_p2[root_r];
+
+            num_active_circuits -= 1;
+
+            // Print progress on merges (every time a merge happens)
+            // or maybe just when it gets close to 1
+            if num_active_circuits % 50 == 0 || num_active_circuits < 10 {
+                 print("Merge! Active circuits remaining: " + num_active_circuits.to_string());
+            }
+
+            if num_active_circuits == 1 {
+                // This connection unified the last two components
+                last_unifying_x_product = boxes[l][0] * boxes[r][0];
+                print("--- FINAL MERGE FOUND ---");
+                print("Edge: Box " + l.to_string() + " connected to Box " + r.to_string());
+                print("X1: " + boxes[l][0].to_string() + ", X2: " + boxes[r][0].to_string());
+                break;
+            }
+        }
+    }
+
+    print("Part 2 Result: " + last_unifying_x_product.to_string());
+}
+
+solve();

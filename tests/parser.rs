@@ -112,10 +112,8 @@ fn test_parse_function_definition() {
             assert_eq!(func_binding.name, "my_function");
             assert!(func_binding.params.is_empty());
 
-            if let Type::Primary(TypePrimary::Named(name, _)) = &func_binding.return_type {
-                assert_eq!(name, "int");
-            } else {
-                panic!("Expected named type for return type");
+            if !matches!(func_binding.return_type, Type::Int(_)) {
+                panic!("Expected int return type, got {:?}", func_binding.return_type);
             }
 
             if let Some(expr) = &func_binding.body.final_expression {
@@ -149,23 +147,17 @@ fn test_parse_function_definition_with_parameters() {
             assert_eq!(func_binding.params.len(), 2);
 
             assert_eq!(func_binding.params[0].name, "a");
-            if let Type::Primary(TypePrimary::Named(name, _)) = &func_binding.params[0].ty {
-                assert_eq!(name, "int");
-            } else {
-                panic!("Expected named type for parameter a");
+            if !matches!(func_binding.params[0].ty, Type::Int(_)) {
+                panic!("Expected int type for parameter a");
             }
 
             assert_eq!(func_binding.params[1].name, "b");
-            if let Type::Primary(TypePrimary::Named(name, _)) = &func_binding.params[1].ty {
-                assert_eq!(name, "int");
-            } else {
-                panic!("Expected named type for parameter b");
+            if !matches!(func_binding.params[1].ty, Type::Int(_)) {
+                panic!("Expected int type for parameter b");
             }
 
-            if let Type::Primary(TypePrimary::Named(name, _)) = &func_binding.return_type {
-                assert_eq!(name, "int");
-            } else {
-                panic!("Expected named type for return type");
+            if !matches!(func_binding.return_type, Type::Int(_)) {
+                panic!("Expected int return type");
             }
         }
         _ => panic!("Expected a function definition statement"),
@@ -328,7 +320,7 @@ fn test_parse_sum_type_with_nested_record() {
 
                     // Verify the payload is a Record Type
                     match &move_variant.ty {
-                        Some(Type::Primary(TypePrimary::Record(record_type))) => {
+                        Some(Type::Record(record_type)) => {
                             assert_eq!(record_type.fields.len(), 2);
                             assert_eq!(record_type.fields[0].name, "x");
                             assert_eq!(record_type.fields[1].name, "y");
@@ -702,22 +694,16 @@ fn test_parse_complex_struct_definition() {
                 TypeConstructor::Record(record_type) => {
                     assert_eq!(record_type.fields.len(), 3);
                     assert_eq!(record_type.fields[0].name, "id");
-                    if let Type::Primary(TypePrimary::Named(name, _)) = &record_type.fields[0].ty {
-                        assert_eq!(name, "int");
-                    } else {
-                        panic!("Expected named type for field 'id'");
+                    if !matches!(record_type.fields[0].ty, Type::Int(_)) {
+                         panic!("Expected int type for field 'id'");
                     }
                     assert_eq!(record_type.fields[1].name, "username");
-                    if let Type::Primary(TypePrimary::Named(name, _)) = &record_type.fields[1].ty {
-                        assert_eq!(name, "string");
-                    } else {
-                        panic!("Expected named type for field 'username'");
+                    if !matches!(record_type.fields[1].ty, Type::String(_)) {
+                         panic!("Expected string type for field 'username'");
                     }
                     assert_eq!(record_type.fields[2].name, "is_active");
-                    if let Type::Primary(TypePrimary::Named(name, _)) = &record_type.fields[2].ty {
-                        assert_eq!(name, "bool");
-                    } else {
-                        panic!("Expected named type for field 'is_active'");
+                    if !matches!(record_type.fields[2].ty, Type::Bool(_)) {
+                         panic!("Expected bool type for field 'is_active'");
                     }
                 }
                 _ => panic!("Expected record constructor"),
@@ -1308,9 +1294,8 @@ fn test_parse_return_statement() {
         TopStatement::LetStmt(LetStatement::Function(func)) => {
             assert_eq!(func.name, "foo");
             assert_eq!(func.params.len(), 0);
-            match &func.return_type {
-                Type::Primary(TypePrimary::Named(name, _)) => assert_eq!(name, "int"),
-                _ => panic!("Expected return type 'int'"),
+            if !matches!(func.return_type, Type::Int(_)) {
+                 panic!("Expected return type 'int'");
             }
             // Check block contains a single statement: return 42;
             assert_eq!(func.body.statements.len(), 1);
@@ -1395,24 +1380,18 @@ fn test_parse_generic_type_list() {
         }) => {
             assert_eq!(name, "Map");
             match constructor {
-                TypeConstructor::Alias(Type::Primary(TypePrimary::Generic {
+                TypeConstructor::Alias(Type::Generic {
                     name: generic_name,
                     args,
                     ..
-                })) => {
+                }) => {
                     assert_eq!(generic_name, "Map");
                     assert_eq!(args.len(), 2);
-                    match &args[0] {
-                        Type::Primary(TypePrimary::Named(type_name, _)) => {
-                            assert_eq!(type_name, "string")
-                        }
-                        _ => panic!("Expected first generic arg to be 'string'"),
+                    if !matches!(args[0], Type::String(_)) {
+                         panic!("Expected first generic arg to be string");
                     }
-                    match &args[1] {
-                        Type::Primary(TypePrimary::Named(type_name, _)) => {
-                            assert_eq!(type_name, "int")
-                        }
-                        _ => panic!("Expected second generic arg to be 'int'"),
+                    if !matches!(args[1], Type::Int(_)) {
+                         panic!("Expected second generic arg to be int");
                     }
                 }
                 _ => panic!("Expected generic type alias for Map"),
@@ -1428,24 +1407,18 @@ fn test_parse_generic_type_list() {
         }) => {
             assert_eq!(name, "Pair");
             match constructor {
-                TypeConstructor::Alias(Type::Primary(TypePrimary::Generic {
+                TypeConstructor::Alias(Type::Generic {
                     name: generic_name,
                     args,
                     ..
-                })) => {
+                }) => {
                     assert_eq!(generic_name, "Pair");
                     assert_eq!(args.len(), 2);
-                    match &args[0] {
-                        Type::Primary(TypePrimary::Named(type_name, _)) => {
-                            assert_eq!(type_name, "int")
-                        }
-                        _ => panic!("Expected first generic arg to be 'int'"),
+                    if !matches!(args[0], Type::Int(_)) {
+                         panic!("Expected first generic arg to be int");
                     }
-                    match &args[1] {
-                        Type::Primary(TypePrimary::Named(type_name, _)) => {
-                            assert_eq!(type_name, "float")
-                        }
-                        _ => panic!("Expected second generic arg to be 'float'"),
+                    if !matches!(args[1], Type::Float(_)) {
+                         panic!("Expected second generic arg to be float");
                     }
                 }
                 _ => panic!("Expected generic type alias for Pair"),
@@ -1453,4 +1426,24 @@ fn test_parse_generic_type_list() {
         }
         _ => panic!("Expected type declaration for Pair"),
     }
+}
+
+#[test]
+fn test_parse_nested_functions() {
+    let source = r#"
+    solve(): int = {
+        mut res = 0;
+
+        add_value(x: int) = {
+            res = res + x;
+        };
+
+        add_value(5);
+        add_value(10);
+        res
+    };
+    solve();
+    "#;
+    let program = assert_parses(source);
+    assert_eq!(program.statements.len(), 2);
 }

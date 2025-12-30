@@ -1,0 +1,114 @@
+get_file_content(): string = {
+    // `args` is a built-in injected into global env by interpreter runtime
+    file = open(args.get(0), "r");
+    content: string = file.read();
+    file.close();
+    content
+}
+
+get_char_at(lines: [string], row: int, col: int): string = {
+    if row >= lines.length() { return " "; }
+    line = lines[row];
+    if col >= line.length() { return " "; }
+    line[col]
+}
+
+solve() = {
+    content = get_file_content();
+
+    raw_lines: [string] = content.split("\n");
+    mut lines: [string] = [];
+
+    for l in raw_lines {
+        if l.length() > 0 {
+            lines.push(l);
+        }
+    }
+
+    height = lines.length();
+
+    // The last line contains operators
+    op_row = height - 1;
+
+    // Find max width to iterate columns
+    mut width = 0;
+    for l in lines {
+        if l.length() > width { width = l.length(); }
+    }
+
+    mut grand_total = 0;
+
+    mut current_block_start = 0;
+    mut in_block = false;
+
+    for col in 0..<(width + 1) {
+
+        // Check if this column is entirely spaces (in the number rows)
+        mut is_empty_col = true;
+
+        for r in 0..<op_row {
+            ch = get_char_at(lines, r, col);
+            if ch != " " {
+                is_empty_col = false;
+                break;
+            }
+        }
+
+        // State Machine for blocks
+        if !is_empty_col {
+            if !in_block {
+                in_block = true;
+                current_block_start = col;
+            }
+        } else {
+            if in_block {
+                current_block_end = col; // exclusive
+                in_block = false;
+
+                mut op = "";
+                for c in current_block_start..<current_block_end {
+                    ch = get_char_at(lines, op_row, c);
+                    if ch == "*" || ch == "+" {
+                        op = ch;
+                    }
+                }
+
+                mut block_nums: [int] = [];
+
+                for c in current_block_start..<current_block_end {
+                    mut num_str = "";
+                    for r in 0..<op_row {
+                        digit_ch = get_char_at(lines, r, c);
+                        if digit_ch != " " {
+                            num_str = num_str + digit_ch;
+                        }
+                    }
+
+                    if num_str != "" {
+                        block_nums.push(num_str.parse_int());
+                    }
+                }
+
+                mut block_res = 0;
+
+                if block_nums.length() > 0 {
+                    if op == "+" {
+                        block_res = 0;
+                        for n in block_nums { block_res += n; }
+                    } else {
+                        // op == "*"
+                        block_res = 1;
+                        for n in block_nums { block_res = block_res * n; }
+                    }
+                }
+
+                grand_total += block_res;
+            }
+        }
+    }
+
+    print("-----RESULT-----");
+    print(grand_total);
+}
+
+solve();

@@ -1,0 +1,70 @@
+get_file_content(): string = {
+    // `args` is a built-in injected into global env by interpreter runtime
+    file = open(args.get(0), "r");
+    content: string = file.read();
+    file.close();
+    content
+}
+
+solve() = {
+    content = get_file_content();
+
+    raw_lines: [string] = content.split("\n");
+    mut lines: [string] = [];
+
+    for l in raw_lines {
+        if l.length() > 0 {
+            lines.push(l);
+        }
+    }
+
+    mut res: int = 0;
+    mut s_idx = -1;
+
+    // TODO: could use enumerate()
+    mut i = 0;
+    for ch in lines[0].split("") {
+        if ch == "S" {
+            s_idx = i;
+            break;
+        }
+        // TODO: need to fix split("") to not return
+        // random empty strings?
+        if (ch != "") {
+            i += 1;
+        }
+    }
+
+    mut lasers = Map();
+    lasers.insert(s_idx, true);
+
+    i = 0;
+    n = lines.length();
+    // TODO: could use range based indexing / whatever Rust / Swift do / iters
+    for i in 1..<n {
+        line = lines[i];
+
+
+        mut j = 0;
+        for ch in line.split("") {
+            if  ch == "^" && lasers.has(j) {
+                // Split laser if one was at lvl j before
+                lasers.remove(j);
+                // TODO: do we need to handle j = 0
+                lasers.insert(j - 1, true);
+                lasers.insert(j + 1, true);
+
+                // Track how many splits occured
+                res += 1;
+            }
+            if ch != "" {
+                j += 1;
+            }
+        }
+
+    }
+
+    print(res);
+}
+
+solve();

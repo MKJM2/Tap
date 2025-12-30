@@ -1,0 +1,189 @@
+get_file_content(): string = {
+    // `args` is a built-in injected into global env by interpreter runtime
+    file = open(args.get(0), "r");
+    content: string = file.read();
+    file.close();
+    content
+}
+
+dist(box1, box2) : float = {
+    dx = box2[0] - box1[0];
+    dy = box2[1] - box1[1];
+    dz = box2[2] - box1[2];
+
+    // dx *= dx;
+    // dy *= dy;
+    // dz *= dz;
+
+    // distances are monotonic, no need to square
+    // d = sqrt(dx + dy + dz);
+    dx * dx + dy * dy + dz * dz
+}
+
+min(a: int, b: int) : int = {
+    if a <= b {
+        a
+    } else {
+        b
+    }
+}
+
+solve() = {
+    content = get_file_content();
+
+    raw_lines: [string] = content.split("\n");
+    mut lines: [string] = [];
+
+    for l in raw_lines {
+        if l.length() > 0 {
+            lines.push(l);
+        }
+    }
+
+    mut res: int = 0;
+
+    // TODO: record type for each junction box, or just vec3
+    mut boxes: [[int]] = [];
+    for l in lines {
+        parts = l.split(",");
+        mut coords = [];
+        for p in parts {
+            if p.length() > 0 {
+                coords.push(p.parse_int());
+            }
+        }
+        boxes.push(coords);
+    }
+
+
+
+    // On a given list of distances + indices we construct,
+    // we can use .sort(cmp) method, where
+    // cmp is a comparator function / lambda
+    // Had to add it to the interpreter first though lol
+
+    // Calculate a2a junction box distance
+    mut top_k_distances = []; // Keep this list small
+    K: int = 1000; // Only track the 1000 shortest distances
+
+    n = boxes.length();
+    for i in 0..<n {
+        for j in (i+1)..<n {
+            dx = boxes[j][0] - boxes[i][0];
+            dy = boxes[j][1] - boxes[i][1];
+            dz = boxes[j][2] - boxes[i][2];
+
+            d_sq = dx * dx + dy * dy + dz * dz; // Squared distance
+
+            if top_k_distances.length() < K {
+                top_k_distances.push([d_sq, i, j]);
+                // Sort the small list after adding
+                top_k_distances.sort((a, b) => { (a[0] - b[0]) });
+            } else {
+                // If the current squared distance is smaller than the largest
+                // one currently in our top K list (which is at the end after sorting ascending).
+                if d_sq < top_k_distances[K - 1][0] {
+                    top_k_distances[K - 1] = [d_sq, i, j]; // Replace the largest
+                    // Re-sort the list to maintain ascending order
+                    top_k_distances.sort((a, b) => { (a[0] - b[0]) });
+                }
+            }
+        }
+        print("Done " + i.to_string() + "/" + n.to_string());
+    }
+    // After this loop, 'top_k_distances' contains the 1000 shortest distances.
+    // Replace the original 'distances' variable with this optimized one.
+    mut distances = top_k_distances;
+
+    distances.sort((a, b) => { (a[0] - b[0]) });
+
+    // Make graph edges out of the closest N pairs
+    N: int = min(n, 1000);
+
+    mut edges: [int] = [];
+    for i in 0..<N {
+        edges.push([distances[i][1], distances[i][2]]);
+    }
+    print(edges);
+
+    // Find top 3 largest connected subgraphs
+
+    // Map a node # to subgraph #
+    mut node_to_c = Map();
+
+    // Map a subgraph # to [node #] (useful for merging subgraphs)
+    mut c_to_nodes = Map();
+    mut count = 0;
+    for edge in edges {
+        // we assign each subgraph a number.
+        // we'll traverse edge list, assign each edge to a subgraph
+        // and merging the graphs as we go
+        l = edge[0];
+        r = edge[1];
+        l_in_subgraph = node_to_c.has(l);
+        r_in_subgraph = node_to_c.has(r);
+        if l_in_subgraph && !r_in_subgraph {
+            c = node_to_c.get(l);
+            node_to_c.insert(r, c);
+            mut ns = c_to_nodes.get(c);
+            ns.push(r);
+            c_to_nodes.insert(c, ns);
+        }
+        if !l_in_subgraph && r_in_subgraph {
+            c = node_to_c.get(r);
+            node_to_c.insert(l, c);
+            mut ns = c_to_nodes.get(c);
+            ns.push(l);
+            c_to_nodes.insert(c, ns);
+        }
+        if !l_in_subgraph && !r_in_subgraph {
+            c_to_nodes.insert(count, [l, r]);
+            node_to_c.insert(l, count);
+            node_to_c.insert(r, count);
+            count += 1;
+        }
+        if l_in_subgraph && r_in_subgraph {
+            // TODO: merge subgraphs if c from l != c from r
+            cl = node_to_c.get(l);
+            cr = node_to_c.get(r);
+            if cl == cr {
+                continue;
+            }
+            // else cl != cr, need to merge subgraphs
+            // let's just use l as new c for subgraph
+            mut lnodes = c_to_nodes.get(cl);
+            rnodes = c_to_nodes.get(cr);
+            for node in rnodes {
+                lnodes.push(node);
+                node_to_c.insert(node, cl);
+            }
+            c_to_nodes.remove(cr);
+            c_to_nodes.insert(cl, lnodes);
+        }
+    }
+    print(c_to_nodes);
+
+    mut circuit_sizes: [int] = [];
+
+    // Add sizes of circuits explicitly formed by edges (stored in c_to_nodes).
+    for comp_id in c_to_nodes.keys() {
+        circuit_sizes.push(c_to_nodes.get(comp_id).length());
+    }
+
+    // Sort circuit sizes in descending order to easily get the largest ones.
+    circuit_sizes.sort((a, b) => { b - a });
+
+    // Multiply the sizes of the three largest circuits.
+    mut final_result: int = 1;
+    if circuit_sizes.length() >= 3 {
+        final_result = circuit_sizes[0] * circuit_sizes[1] * circuit_sizes[2];
+    } else {
+        // If there are fewer than 3 circuits with more than one node, multiply all available sizes.
+        for s in circuit_sizes {
+            final_result *= s;
+        }
+    }
+    print(final_result);
+}
+
+solve();

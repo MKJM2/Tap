@@ -1,7 +1,9 @@
 use crate::ast::*;
 use crate::builtins::eval_method;
 use crate::environment::Environment;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -10,7 +12,8 @@ pub enum Value {
     Float(f64),
     String(String),
     Boolean(bool),
-    List(Vec<Value>),
+    List(Rc<RefCell<Vec<Value>>>),
+    Map(Rc<RefCell<HashMap<MapKey, Value>>>),
     Record(HashMap<String, Value>),
     Function {
         name: Option<String>,
@@ -38,7 +41,6 @@ pub enum Value {
         end: i64,
         inclusive: bool,
     },
-    Map(HashMap<MapKey, Value>),
     Unit,
 }
 
@@ -173,7 +175,8 @@ impl Interpreter {
 
     fn inject_builtins(&mut self) {
         // Inject built-in functions as special function values
-        let builtins = vec!["print", "eprint", "open", "input", "Map"];
+        // TODO: this should also be moved into builtins.rs
+        let builtins = vec!["print", "eprint", "open", "input", "Map", "sqrt"];
         for name in builtins {
             self.env.define(
                 name.to_string(),
@@ -218,10 +221,7 @@ impl Interpreter {
                                 name: Some(format!("{}Constructor", variant_name)),
                                 params: vec![Parameter {
                                     name: "value".to_string(),
-                                    ty: Type::Primary(TypePrimary::Named(
-                                        "any".to_string(),
-                                        variant.span,
-                                    )),
+                                    ty: Type::Any(variant.span),
                                     span: variant.span,
                                 }],
                                 body: Block {
@@ -394,22 +394,30 @@ impl Interpreter {
 
         match &operators[0] {
             PostfixOperator::ListAccess { index, .. } => {
-                if let Value::List(mut elements) = current {
+                // mutate the list *in place*
+                if let Value::List(elements_rc) = current {
                     let idx_val = self.eval_expr(index)?;
                     if let Value::Integer(idx) = idx_val {
-                        if idx < 0 || idx as usize >= elements.len() {
+                        let idx = idx as usize;
+                        let mut elements = elements_rc.borrow_mut();
+
+                        if idx >= elements.len() {
                             return Err(RuntimeError::Type(format!("Index {} out of bounds", idx)));
                         }
 
-                        let idx = idx as usize;
-                        // Recursively update nested value
-                        elements[idx] = self.update_nested_value(
-                            elements[idx].clone(),
-                            &operators[1..],
-                            new_value,
-                        )?;
+                        // We need to recursively handle the next operator, passing the element
+                        // at `idx`. If we are at the end of operators, we set the value.
+                        if operators.len() == 1 {
+                            elements[idx] = new_value;
+                        } else {
+                            // Recurse
+                            let child = elements[idx].clone();
+                            let updated_child =
+                                self.update_nested_value(child, &operators[1..], new_value)?;
+                            elements[idx] = updated_child;
+                        }
 
-                        return Ok(Value::List(elements));
+                        return Ok(Value::List(elements_rc.clone()));
                     }
                     Err(RuntimeError::Type("List index must be integer".into()))
                 } else {
@@ -473,7 +481,7 @@ impl Interpreter {
                 for elem_expr in &list_literal.elements {
                     elements.push(self.eval_expr(elem_expr)?);
                 }
-                Ok(Value::List(elements))
+                Ok(Value::List(Rc::new(RefCell::new(elements))))
             }
             PrimaryExpression::Record(record_literal) => self.eval_record_literal(record_literal),
             PrimaryExpression::This(_) => self.env.get("this").ok_or(RuntimeError::Type(
@@ -540,8 +548,10 @@ impl Interpreter {
                 }
                 Ok(Value::Unit)
             }
-            Value::List(elements) => {
-                for element in elements {
+            Value::List(elements_rc) => {
+                // Don't hold a lock on the RefCell during loop body exec
+                let elements_copy = elements_rc.borrow().clone();
+                for element in elements_copy {
                     self.bind_pattern(&for_expr.pattern, element)?;
                     match self.eval_block(&for_expr.body) {
                         Err(RuntimeError::Break) => break,
@@ -679,6 +689,7 @@ impl Interpreter {
             arg_values.push(self.eval_expr(arg)?);
         }
 
+        // TODO: These need to be moved to src/builtins.rs
         if let Value::Function {
             name: Some(name), ..
         } = &func_value
@@ -726,7 +737,22 @@ impl Interpreter {
                     if !arg_values.is_empty() {
                         return Err(RuntimeError::Type("Map() takes no arguments".into()));
                     }
-                    return Ok(Value::Map(HashMap::new()));
+                    return Ok(Value::Map(Rc::new(RefCell::new(HashMap::new()))));
+                }
+                "sqrt" => {
+                    if arg_values.len() != 1 {
+                        return Err(RuntimeError::Type("sqrt expects 1 argument".into()));
+                    }
+                    match arg_values[0] {
+                        Value::Integer(i) => return Ok(Value::Float((i as f64).sqrt())),
+                        Value::Float(f) => return Ok(Value::Float(f.sqrt())),
+                        _ => {
+                            return Err(RuntimeError::Type(format!(
+                                "sqrt() only takes numeric arguments, not: {:?}",
+                                arg_values[0]
+                            )));
+                        }
+                    }
                 }
                 _ => {} // Continue to normal call
             }
@@ -734,7 +760,6 @@ impl Interpreter {
 
         if let Value::BuiltInMethod { receiver, method } = func_value {
             // For methods, we need to pass back to builtins module
-            // But wait, eval_builtin_method expects AST expressions in the old code?
             return eval_method(self, *receiver, &method, arg_values, var_name);
         }
 
@@ -963,7 +988,8 @@ impl Interpreter {
         index_expr: &Expression,
     ) -> Result<Value, RuntimeError> {
         match value {
-            Value::List(elements) => {
+            Value::List(elements_rc) => {
+                let elements = elements_rc.borrow();
                 let index_value = self.eval_expr(index_expr)?;
                 match index_value {
                     Value::Integer(idx) => {
@@ -1153,6 +1179,8 @@ impl Interpreter {
                     }
                     Ok(Value::Integer(l.rem_euclid(r)))
                 }
+                BinaryOperator::Xor => Ok(Value::Integer(l ^ r)),
+                // TODO: bitwise AND, OR
                 BinaryOperator::Equal => Ok(Value::Boolean(l == r)),
                 BinaryOperator::NotEqual => Ok(Value::Boolean(l != r)),
                 BinaryOperator::LessThan => Ok(Value::Boolean(l < r)),
@@ -1189,14 +1217,17 @@ impl Interpreter {
                 BinaryOperator::NotEqual => Ok(Value::Boolean(l != r)),
                 _ => Err(RuntimeError::Type("Invalid string operator".into())),
             },
-            (Value::List(l), Value::List(r)) => match op {
+            (Value::List(l_rc), Value::List(r_rc)) => match op {
                 BinaryOperator::Add => {
+                    let l = l_rc.borrow();
+                    let r = r_rc.borrow();
                     let mut new_list = l.clone();
-                    new_list.extend(r);
-                    Ok(Value::List(new_list))
+                    new_list.extend(r.iter().cloned());
+                    // Allocate new list, don't mutate originals
+                    Ok(Value::List(Rc::new(RefCell::new(new_list))))
                 }
-                BinaryOperator::Equal => Ok(Value::Boolean(l == r)),
-                BinaryOperator::NotEqual => Ok(Value::Boolean(l != r)),
+                BinaryOperator::Equal => Ok(Value::Boolean(*l_rc.borrow() == *r_rc.borrow())),
+                BinaryOperator::NotEqual => Ok(Value::Boolean(*l_rc.borrow() != *r_rc.borrow())),
                 _ => Err(RuntimeError::Type("Invalid list operator".into())),
             },
             _ => Err(RuntimeError::Type(
@@ -1222,7 +1253,8 @@ impl Interpreter {
             Value::String(s) => s.clone(),
             Value::Boolean(b) => b.to_string(),
             Value::Unit => "()".to_string(),
-            Value::List(items) => {
+            Value::List(items_rc) => {
+                let items = items_rc.borrow();
                 let items_str: Vec<String> = items
                     .iter()
                     .map(|v| self.value_to_display_string(v))
@@ -1262,8 +1294,9 @@ impl Interpreter {
                     format!("{}..{}", start, end)
                 }
             }
-            Value::Map(map) => {
-                let entries: Vec<String> = map
+            Value::Map(map_rc) => {
+                let entries: Vec<String> = map_rc
+                    .borrow()
                     .iter()
                     .map(|(k, v)| {
                         format!(

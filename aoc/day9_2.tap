@@ -1,0 +1,99 @@
+get_file_content(): string = {
+    file = open(args.get(0), "r");
+    content: string = file.read();
+    file.close();
+    content
+}
+
+abs(x): int = { if x < 0 { -x } else { x } }
+min(a, b): int = { if a < b { a } else { b } }
+max(a, b): int = { if a > b { a } else { b } }
+
+solve() = {
+    content = get_file_content();
+    lines: [string] = content.split("\n").filter((l) => l.length() > 0);
+    positions: [[int]] = lines.map((l) => {
+        ds = l.split(",");
+        [ds[0].parse_int(), ds[1].parse_int()]
+    });
+    n = positions.length();
+
+    // Build boundary set (all tiles on polygon edges)
+    mut boundary = Map();
+    for i in 0..<n {
+        a = positions[i];
+        b = positions[(i + 1) % n];
+        if a[0] == b[0] {
+            x = a[0];
+            for y in min(a[1], b[1])..=max(a[1], b[1]) {
+                boundary.insert(x.to_string() + "," + y.to_string(), true);
+            }
+        } else {
+            y = a[1];
+            for x in min(a[0], b[0])..=max(a[0], b[0]) {
+                boundary.insert(x.to_string() + "," + y.to_string(), true);
+            }
+        }
+    }
+
+    // Check if point is inside or on polygon using ray casting
+    is_valid(px, py) = {
+        if boundary.has(px.to_string() + "," + py.to_string()) { return true; }
+        mut crossings = 0;
+        for i in 0..<n {
+            a = positions[i];
+            b = positions[(i + 1) % n];
+            if a[0] == b[0] {
+                edge_x = a[0];
+                y1 = min(a[1], b[1]);
+                y2 = max(a[1], b[1]);
+                if edge_x < px && py > y1 && py <= y2 { crossings += 1; }
+            }
+        }
+        crossings % 2 == 1
+    };
+
+    // Check if rectangle is entirely inside polygon
+    is_rect_valid(x1, y1, x2, y2) = {
+        rx1 = min(x1, x2); rx2 = max(x1, x2);
+        ry1 = min(y1, y2); ry2 = max(y1, y2);
+
+        // Check all 4 corners
+        if !is_valid(rx1, ry1) || !is_valid(rx2, ry2) ||
+           !is_valid(rx1, ry2) || !is_valid(rx2, ry1) { return false; }
+
+        // Check no polygon edge crosses rectangle interior
+        for k in 0..<n {
+            pa = positions[k];
+            pb = positions[(k + 1) % n];
+            if pa[0] == pb[0] {
+                ex = pa[0];
+                ey1 = min(pa[1], pb[1]);
+                ey2 = max(pa[1], pb[1]);
+                if ex > rx1 && ex < rx2 && ey1 < ry2 && ey2 > ry1 { return false; }
+            } else {
+                ey = pa[1];
+                ex1 = min(pa[0], pb[0]);
+                ex2 = max(pa[0], pb[0]);
+                if ey > ry1 && ey < ry2 && ex1 < rx2 && ex2 > rx1 { return false; }
+            }
+        }
+        true
+    };
+
+    mut max_area: int = 0;
+    for i in 0..<n {
+        a = positions[i];
+        for j in (i+1)..<n {
+            b = positions[j];
+            area = (abs(a[0] - b[0]) + 1) * (abs(a[1] - b[1]) + 1);
+            if area > max_area && is_rect_valid(a[0], a[1], b[0], b[1]) {
+                max_area = area;
+            }
+        }
+        print("Done: " + ((i + 1) * 100 / n).to_string() + "%");
+    }
+    print(max_area);
+}
+
+solve();

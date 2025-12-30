@@ -31,6 +31,7 @@ pub enum TokenType {
     Star,             // *
     Slash,            // /
     Percent,          // %
+    Caret,            // ^
     AmpAmp,           // &&
     Pipe,             // |
     PipePipe,         // ||
@@ -77,6 +78,12 @@ pub enum TokenType {
     KeywordBreak,      // break
     KeywordReturn,     // return
     KeywordUnderscore, // _ (used in patterns)
+    KeywordInt,        // int
+    KeywordFloat,      // float
+    KeywordString,     // string
+    KeywordBool,       // bool
+    KeywordUnit,       // unit
+    KeywordAny,        // any
 
     // End of File
     EndOfFile,
@@ -97,6 +104,12 @@ impl fmt::Display for TokenType {
             TokenType::String(s) => write!(f, "STRING(\"{}\")", s),
             TokenType::Percent => write!(f, "PERCENT"),
             TokenType::PercentEqual => write!(f, "PERCENT_EQUAL"),
+            TokenType::KeywordInt => write!(f, "int"),
+            TokenType::KeywordFloat => write!(f, "float"),
+            TokenType::KeywordString => write!(f, "string"),
+            TokenType::KeywordBool => write!(f, "bool"),
+            TokenType::KeywordUnit => write!(f, "unit"),
+            TokenType::KeywordAny => write!(f, "any"),
             _ => write!(f, "{:?}", self),
         }
     }
@@ -251,7 +264,7 @@ impl<'a> Lexer<'a> {
                     } else if self.match_char('<') {
                         self.add_token(TokenType::DotDotLess);
                     } else {
-                        self.add_token(TokenType::Dot);
+                        self.add_token(TokenType::DotDot);
                     }
                 } else {
                     self.add_token(TokenType::Dot)
@@ -336,6 +349,10 @@ impl<'a> Lexer<'a> {
                 } else {
                     self.add_token(TokenType::Percent);
                 }
+            }
+            '^' => {
+                self.advance();
+                self.add_token(TokenType::Caret);
             }
             '&' => {
                 self.advance();
@@ -485,7 +502,7 @@ impl<'a> Lexer<'a> {
             "else" | "albo" | "lub" | "w_innym_razie" => TokenType::KeywordElse,
             "while" | "dopóki" => TokenType::KeywordWhile,
             "for" | "dla" => TokenType::KeywordFor,
-            "in" | "w" => TokenType::KeywordIn,
+            "in" | "we" => TokenType::KeywordIn,
             "match" | "dopasuj" => TokenType::KeywordMatch,
             "true" | "prawda" => TokenType::KeywordTrue,
             "false" | "fałsz" => TokenType::KeywordFalse,
@@ -495,6 +512,12 @@ impl<'a> Lexer<'a> {
             "break" | "przerwij" | "koniec" => TokenType::KeywordBreak,
             "return" | "zwróć" => TokenType::KeywordReturn,
             "_" => TokenType::KeywordUnderscore, // Explicit keyword for '_' pattern
+            "int" | "całkowita" | "całkowity" | "całkowite" => TokenType::KeywordInt,
+            "float" | "zmiennoprzecinkowa" => TokenType::KeywordFloat,
+            "string" | "słowo" | "ciąg" => TokenType::KeywordString,
+            "bool" | "logiczny" => TokenType::KeywordBool,
+            "unit" | "nijaki" => TokenType::KeywordUnit,
+            "any" | "każdy" => TokenType::KeywordAny,
             _ => TokenType::Identifier(text.clone()),
         };
         self.add_token(token_type);

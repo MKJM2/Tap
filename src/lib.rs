@@ -6,4 +6,6 @@ pub mod interpreter;
 pub mod lexer;
 pub mod parser;
 pub mod prompt;
+pub mod type_checker;
+pub mod types;
 pub mod utils;

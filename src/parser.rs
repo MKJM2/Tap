@@ -615,10 +615,7 @@ impl<'a> Parser<'a> {
         let return_type = if self.maybe_consume(&[TokenType::Colon]) {
             self.parse_type()?
         } else {
-            Type::Primary(TypePrimary::Named(
-                "unit".to_string(),
-                Span { start: 0, end: 0 },
-            ))
+            Type::Inferred(Span { start: 0, end: 0 })
         };
 
         self.consume(
@@ -649,20 +646,44 @@ impl<'a> Parser<'a> {
             let return_type = self.parse_type()?;
             let span = Span::new(primary.span().start, return_type.span().end);
             return Ok(Type::Function {
-                params: vec![Type::Primary(primary)],
+                params: vec![primary],
                 return_type: Box::new(return_type),
                 span,
             });
         }
 
-        Ok(Type::Primary(primary))
+        Ok(primary)
     }
 
-    fn parse_type_primary(&mut self) -> Result<TypePrimary, ParseError> {
+    fn parse_type_primary(&mut self) -> Result<Type, ParseError> {
         let token = self.peek().clone();
         let span = token.span;
 
         match &token.token_type {
+            TokenType::KeywordInt => {
+                self.advance();
+                Ok(Type::Int(span))
+            }
+            TokenType::KeywordFloat => {
+                self.advance();
+                Ok(Type::Float(span))
+            }
+            TokenType::KeywordString => {
+                self.advance();
+                Ok(Type::String(span))
+            }
+            TokenType::KeywordBool => {
+                self.advance();
+                Ok(Type::Bool(span))
+            }
+            TokenType::KeywordUnit => {
+                self.advance();
+                Ok(Type::Unit(span))
+            }
+            TokenType::KeywordAny => {
+                self.advance();
+                Ok(Type::Any(span))
+            }
             TokenType::Identifier(name) => {
                 let name = name.clone();
                 self.advance();
@@ -681,13 +702,13 @@ impl<'a> Parser<'a> {
                         "Expected ']' after generic type arguments.",
                         None,
                     )?;
-                    Ok(TypePrimary::Generic {
+                    Ok(Type::Generic {
                         name,
                         args,
                         span: Span::new(span.start, self.previous().span.end),
                     })
                 } else {
-                    Ok(TypePrimary::Named(name, span))
+                    Ok(Type::Named(name, span))
                 }
             }
             TokenType::OpenBracket => {
@@ -699,14 +720,14 @@ impl<'a> Parser<'a> {
                     "Expected ']' after list type.",
                     None,
                 )?;
-                Ok(TypePrimary::List(
+                Ok(Type::List(
                     Box::new(inner_type),
                     Span::new(span.start, self.previous().span.end),
                 ))
             }
             TokenType::OpenBrace => {
                 let record_type = self.parse_record_type()?;
-                Ok(TypePrimary::Record(record_type))
+                Ok(Type::Record(record_type))
             }
             _ => {
                 let msg = format!("Expected type, but found {:?}.", token.token_type);
@@ -770,7 +791,7 @@ impl<'a> Parser<'a> {
                         params: params
                             .iter()
                             .map(|p| {
-                                Type::Primary(TypePrimary::Named(format!("{}", p.name), p.span))
+                                Type::Named(format!("{}", p.name), p.span)
                             })
                             .collect(),
                         return_type: Box::new(return_type),
@@ -838,28 +859,44 @@ impl<'a> Parser<'a> {
     fn parse_expression(&mut self) -> Result<Expression, ParseError> {
         let _ctx = self.context("expression");
 
-        // Check for lambda expression
-        if self.check(TokenType::OpenParen) {
-            if self.peek_next().token_type == TokenType::CloseParen {
-                if self
-                    .tokens
-                    .get(self.current + 2)
-                    .map_or(false, |t| t.token_type == TokenType::FatArrow)
-                {
-                    return self.parse_function_expression();
-                }
-            } else if self.peek_next().token_type.is_identifier() {
-                if self
-                    .tokens
-                    .get(self.current + 2)
-                    .map_or(false, |t| t.token_type == TokenType::Colon)
-                {
-                    return self.parse_function_expression();
-                }
-            }
+        // Check for lambda expression using lookahead
+        if self.check(TokenType::OpenParen) && self.looks_like_lambda() {
+            return self.parse_function_expression();
         }
 
         self.parse_assignment_expression()
+    }
+
+    /// Lookahead to detect if current position starts a lambda expression
+    fn looks_like_lambda(&self) -> bool {
+        if !self.check(TokenType::OpenParen) {
+            return false;
+        }
+
+        let mut idx = self.current + 1; // Skip the opening paren
+        let mut depth = 1;
+
+        // Scan through the parameter list
+        while idx < self.tokens.len() && depth > 0 {
+            match &self.tokens[idx].token_type {
+                TokenType::OpenParen => depth += 1,
+                TokenType::CloseParen => {
+                    depth -= 1;
+                    if depth == 0 {
+                        // Found matching close paren
+                        // Check if next token is =>
+                        if idx + 1 < self.tokens.len() {
+                            return self.tokens[idx + 1].token_type == TokenType::FatArrow;
+                        }
+                        return false;
+                    }
+                }
+                _ => {}
+            }
+            idx += 1;
+        }
+
+        false
     }
 
     fn parse_assignment_expression(&mut self) -> Result<Expression, ParseError> {
@@ -936,13 +973,32 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_logical_and_expression(&mut self) -> Result<Expression, ParseError> {
-        let mut expr = self.parse_equality_expression()?;
+        let mut expr = self.parse_bitwise_xor_expression()?;
         while self.maybe_consume(&[TokenType::AmpAmp]) {
-            let right = self.parse_equality_expression()?;
+            let right = self.parse_bitwise_xor_expression()?;
             let span = Span::new(expr.span().start, right.span().end);
             expr = Expression::Binary(BinaryExpression {
                 left: Box::new(expr),
                 operator: BinaryOperator::And,
+                right: Box::new(right),
+                span,
+            });
+        }
+        Ok(expr)
+    }
+
+    fn parse_bitwise_xor_expression(&mut self) -> Result<Expression, ParseError> {
+        let _ctx = self.context("bitwise xor expression");
+
+        let mut expr = self.parse_equality_expression()?;
+
+        while self.maybe_consume(&[TokenType::Caret]) {
+            // let operator_token = self.previous().clone();
+            let right = self.parse_equality_expression()?;
+            let span = Span::new(expr.span().start, right.span().end);
+            expr = Expression::Binary(BinaryExpression {
+                left: Box::new(expr),
+                operator: BinaryOperator::Xor,
                 right: Box::new(right),
                 span,
             });
@@ -1064,6 +1120,19 @@ impl<'a> Parser<'a> {
 
     fn parse_postfix_expression(&mut self) -> Result<Expression, ParseError> {
         let expr = self.parse_primary_expression()?;
+
+        // Don't parse postfix operators after brace-ending expressions
+        let expr_ends_with_brace = matches!(
+            expr,
+            Expression::If(_)
+                | Expression::While(_)
+                | Expression::For(_)
+                | Expression::Match(_)
+                | Expression::Block(_)
+        );
+        if expr_ends_with_brace {
+            return Ok(expr);
+        }
 
         let mut operators = Vec::new();
         while self.maybe_consume(&[
@@ -1494,15 +1563,17 @@ impl<'a> Parser<'a> {
 
         let start_token = self.advance().clone();
 
-        self.consume(TokenType::OpenParen, "Expected '(' after 'while'.", None)?;
+        let has_open_paren = self.maybe_consume(&[TokenType::OpenParen]);
 
         let condition = self.parse_expression()?;
 
-        self.consume(
-            TokenType::CloseParen,
-            "Expected ')' after while condition.",
-            None,
-        )?;
+        if has_open_paren {
+            self.consume(
+                TokenType::CloseParen,
+                "Expected ')' after while condition.",
+                None,
+            )?;
+        }
 
         let body = self.parse_block()?;
         let span = Span::new(start_token.span.start, body.span.end);
@@ -1613,10 +1684,7 @@ impl<'a> Parser<'a> {
         let return_type = if self.maybe_consume(&[TokenType::Colon]) {
             self.parse_type()?
         } else {
-            Type::Primary(TypePrimary::Named(
-                "unit".to_string(),
-                Span { start: 0, end: 0 },
-            ))
+            Type::Inferred(Span { start: 0, end: 0 })
         };
 
         self.consume(
@@ -1678,7 +1746,7 @@ impl<'a> Parser<'a> {
                 self.parse_type()?
             } else {
                 // No type annotation - use a placeholder or inferred type
-                Type::Primary(TypePrimary::Named("inferred".to_string(), name_token.span))
+                Type::Inferred(name_token.span)
             };
 
             let span = Span::new(name_token.span.start, type_.span().end);
@@ -1736,7 +1804,11 @@ impl<'a> Parser<'a> {
                 if next_token == TokenType::Colon
                     || (next_token == TokenType::OpenParen && self.looks_like_function_definition())
                 {
-                    statements.push(self.parse_statement()?);
+                    let stmt = self.parse_statement()?;
+                    if matches!(stmt, Statement::Let(LetStatement::Function(_))) {
+                        self.maybe_consume(&[TokenType::Semicolon]);
+                    }
+                    statements.push(stmt);
                     continue;
                 }
             }

@@ -1,0 +1,115 @@
+
+get_file_content(): string = {
+    // `args` is a built-in injected into global env by interpreter runtime
+    file = open(args.get(0), "r");
+    content: string = file.read();
+    file.close();
+    content
+}
+
+parse_range_line(line: string): [int] = {
+    mut start = -1;
+    mut end = -1;
+    chars = line.split("-");
+    for ch in chars {
+        if ch == "" {
+            continue;
+        }
+        if (start == -1) {
+            start = ch.parse_int();
+        } else {
+            end = ch.parse_int();
+        }
+    }
+    // TODO: Fix returning array literal:
+    //       ❯ tap day5_1.tap test_input_day4.txt
+    // Error: Parse errors:
+    // Error at line 23, column 11 (program -> top-level statement -> function declaration -> block -> expression -> list index): Expected ']' after index. Found Comma instead.
+    //   |     [start, end]
+    //   |           ^
+    res = [start, end];
+    res
+}
+
+// Parse all lines into a list of ranges & IDs
+solve(content: string) = {
+    mut lines = [];
+    lines = content.split("\n");
+
+    mut split_idx = -1;
+    mut idx = 0;
+    for line in lines {
+        trimmed = line.trim();
+        if (trimmed.length() == 0) {
+            split_idx = idx;
+            break;
+        }
+        idx += 1;
+    }
+
+    // now parse ranges
+    mut i = 0;
+    ranges: [[int]] = [];
+    while (i < split_idx) {
+        line = lines[i].trim();
+        if (line.length() > 0) {
+            range = parse_range_line(line);
+            ranges.push(range);
+        }
+        i += 1;
+    }
+
+    // Corrected Logic:
+    unique_ranges: [[int]] = [];
+
+    for r in ranges {
+        // We start with the range we want to add
+        mut current_start = r[0];
+        mut current_end = r[1];
+
+        // We will build a new list of unique ranges
+        mut next_unique_ranges: [[int]] = [];
+
+        for ur in unique_ranges {
+            ustart = ur[0];
+            uend = ur[1];
+
+            // Check for overlap
+            // Logic: !(EndA < StartB || StartA > EndB)
+            if !(current_end < ustart || current_start > uend) {
+                // OVERLAP detected!
+                // Merge 'ur' into 'current' by expanding 'current' bounds
+                // We DO NOT add 'ur' to next_unique_ranges (it is absorbed)
+                if (ustart < current_start) { current_start = ustart; }
+                if (uend > current_end) { current_end = uend; }
+            } else {
+                // No overlap, keep the existing unique range
+                next_unique_ranges.push(ur);
+            }
+        }
+
+        // Add the (possibly expanded) current range to the list
+        next_unique_ranges.push([current_start, current_end]);
+
+        // Update the main list
+        unique_ranges = next_unique_ranges;
+    }
+
+    // Sum up all ids in all unique, non-overlapping ranges
+    mut res = 0;
+    for ur in unique_ranges {
+        start = ur[0];
+        end = ur[1];
+        res += (end - start + 1);
+    }
+    res
+}
+
+main(): int = {
+    content = get_file_content();
+    res = solve(content);
+    print("-----RESULT-----");
+    print(res);
+}
+
+main();
